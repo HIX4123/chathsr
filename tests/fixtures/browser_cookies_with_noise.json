@@ -1,0 +1,24 @@
+[
+  {
+    "domain": ".arca.live",
+    "expirationDate": 1999999999,
+    "httpOnly": true,
+    "name": "cf_clearance",
+    "path": "/",
+    "sameSite": "none",
+    "secure": true,
+    "session": false,
+    "value": "token-1"
+  },
+  {
+    "domain": ".google.com",
+    "expirationDate": 1999999999,
+    "httpOnly": false,
+    "name": "noise",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": true,
+    "session": false,
+    "value": "token-3"
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "cookies": [
+    {
+      "name": "cf_clearance",
+      "value": "dummy",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1999999999,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    }
+  ],
+  "origins": []
+}

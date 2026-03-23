@@ -1,0 +1,26 @@
+[
+  {
+    "domain": ".arca.live",
+    "expirationDate": 1999999999,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "cf_clearance",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": null,
+    "value": "token-1"
+  },
+  {
+    "domain": ".arca.live",
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "session",
+    "path": "/",
+    "sameSite": "lax",
+    "secure": true,
+    "session": true,
+    "value": "token-2"
+  }
+]

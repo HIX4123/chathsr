@@ -1,0 +1,2 @@
+[console_scripts]
+rag = chathsr.cli:app

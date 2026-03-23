@@ -1,3 +1,17 @@
+Metadata-Version: 2.4
+Name: chathsr
+Version: 0.1.0
+Summary: CLI RAG over ArcaLive Honkai Star Rail info posts
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: beautifulsoup4<5,>=4.12
+Requires-Dist: google-genai<2,>=1.68
+Requires-Dist: playwright<2,>=1.58
+Requires-Dist: python-dotenv<2,>=1.1
+Requires-Dist: typer<1,>=0.24
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8.3; extra == "dev"
+
 # chathsr
 
 `chathsr` is a Python CLI RAG prototype for ArcaLive's Honkai Star Rail `정보` posts.
@@ -23,7 +37,6 @@ Create a `.env` file at the project root:
 GEMINI_API_KEY=your-key
 DATA_DIR=./data
 PLAYWRIGHT_PROFILE_DIR=./data/playwright-profile
-PLAYWRIGHT_STORAGE_STATE_PATH=./data/storage_state.json
 DATABASE_PATH=./data/chathsr.sqlite3
 GENERATION_MODEL=gemini-3-flash-preview
 CHEAP_GENERATION_MODEL=gemini-3.1-flash-lite-preview
@@ -41,16 +54,6 @@ Authenticate and save the persistent browser profile:
 ```bash
 rag auth
 ```
-
-Import a Playwright `storage_state.json` or browser-extension cookie JSON exported on another machine:
-
-```bash
-rag import-state /path/to/storage_state.json
-```
-
-If you are using an imported session state, the crawler will prefer `PLAYWRIGHT_STORAGE_STATE_PATH` over the persistent profile.
-
-If Playwright cannot be installed locally, export cookies from a browser extension, then import that JSON with the same command.
 
 Backfill the full `정보` category:
 
@@ -95,29 +98,10 @@ rag auth
 rag sync --headful
 ```
 
-If you need to export a session on a local machine with a GUI, save the Playwright storage state after manual login:
-
-```python
-from pathlib import Path
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    context = browser.new_context()
-    page = context.new_page()
-    page.goto("https://arca.live/b/hkstarrail")
-    input("Complete Cloudflare/login, then press Enter...")
-    context.storage_state(path=str(Path("storage_state.json")))
-    browser.close()
-```
-
-If your local browser environment cannot run Playwright, export cookies from a browser extension as JSON and import that file with `rag import-state`.
-
 ## Data
 
 - SQLite database: `data/chathsr.sqlite3`
 - Playwright profile: `data/playwright-profile/`
-- Imported session state: `data/storage_state.json`
 - Only post body text is indexed in the MVP.
 - Images are preserved as URLs in metadata, not OCR'd.
 
@@ -141,4 +125,3 @@ python -m compileall src
 - The default generation model is `gemini-3-flash-preview`.
 - The fallback cheaper model is `gemini-3.1-flash-lite-preview`.
 - The default embedding model is `gemini-embedding-2-preview`.
-- `PLAYWRIGHT_STORAGE_STATE_PATH` can point to an imported `storage_state.json` and override the persistent profile.
