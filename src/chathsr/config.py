@@ -25,6 +25,7 @@ class Settings:
     playwright_profile_dir: Path
     playwright_storage_state_path: Path
     playwright_storage_state_path_configured: bool
+    playwright_cdp_url: str | None
     gemini_api_key: str | None
     generation_model: str
     cheap_generation_model: str
@@ -55,6 +56,10 @@ class Settings:
             or self.playwright_storage_state_path.exists()
         )
 
+    @property
+    def should_use_cdp(self) -> bool:
+        return bool(self.playwright_cdp_url)
+
 
 def load_settings(project_root: str | Path | None = None) -> Settings:
     load_dotenv()
@@ -77,6 +82,7 @@ def load_settings(project_root: str | Path | None = None) -> Settings:
         playwright_profile_dir=profile_dir,
         playwright_storage_state_path=storage_state_path,
         playwright_storage_state_path_configured=storage_state_env is not None,
+        playwright_cdp_url=os.getenv("PLAYWRIGHT_CDP_URL"),
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
         generation_model=os.getenv("GENERATION_MODEL", DEFAULT_GENERATION_MODEL),
         cheap_generation_model=os.getenv(

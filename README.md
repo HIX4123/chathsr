@@ -24,6 +24,7 @@ GEMINI_API_KEY=your-key
 DATA_DIR=./data
 PLAYWRIGHT_PROFILE_DIR=./data/playwright-profile
 PLAYWRIGHT_STORAGE_STATE_PATH=./data/storage_state.json
+PLAYWRIGHT_CDP_URL=
 DATABASE_PATH=./data/chathsr.sqlite3
 GENERATION_MODEL=gemini-3-flash-preview
 CHEAP_GENERATION_MODEL=gemini-3.1-flash-lite-preview
@@ -48,6 +49,12 @@ Import a Playwright `storage_state.json` or browser-extension cookie JSON export
 rag import-state /path/to/storage_state.json
 ```
 
+Import locally exported post JSONL files:
+
+```bash
+rag import-posts /path/to/posts.jsonl
+```
+
 If you are using an imported session state, the crawler will prefer `PLAYWRIGHT_STORAGE_STATE_PATH` over the persistent profile.
 
 If Playwright cannot be installed locally, export cookies from a browser extension, then import that JSON with the same command.
@@ -56,12 +63,21 @@ Backfill the full `정보` category:
 
 ```bash
 rag crawl backfill
+rag crawl backfill --transport custom-http
+```
+
+Export crawled posts as JSONL instead of writing them straight into SQLite:
+
+```bash
+rag crawl export-jsonl ./exports/posts.jsonl
+rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http
 ```
 
 Sync newly added or edited posts:
 
 ```bash
 rag sync
+rag sync --transport custom-http
 ```
 
 Embed only new or changed posts:
@@ -86,6 +102,14 @@ Run sync plus incremental indexing:
 
 ```bash
 rag refresh
+rag refresh --transport custom-http
+```
+
+Probe websocket traffic from a local remote-debugging browser and summarize the result:
+
+```bash
+rag probe websocket --cdp-url http://127.0.0.1:9222 --duration 60 --output ./data/ws-probe.jsonl
+rag probe summarize ./data/ws-probe.jsonl
 ```
 
 Use `--headful` if you need a visible browser during login/debugging:
@@ -113,11 +137,25 @@ with sync_playwright() as p:
 
 If your local browser environment cannot run Playwright, export cookies from a browser extension as JSON and import that file with `rag import-state`.
 
+If you want to add your own HTTP-based collector later, implement the placeholder at `src/chathsr/custom_transport.py` and run crawl/sync/refresh commands with `--transport custom-http`.
+
+If moving session state between machines still gets blocked, keep the authenticated browser on your local machine and attach to it over CDP instead of transferring cookies/state.
+
+1. Start Chrome or Edge with a separate remote-debugging profile.
+2. Complete Cloudflare/login manually in that browser.
+3. Set `PLAYWRIGHT_CDP_URL=http://127.0.0.1:9222`.
+4. Run `rag crawl export-jsonl ./exports/posts.jsonl` on that local machine.
+5. Upload the JSONL file here and run `rag import-posts ./exports/posts.jsonl`.
+
+If you need to inspect whether websocket traffic only carries post IDs or exposes richer post data, run the websocket probe against that same remote-debugging browser before changing the collector design.
+
 ## Data
 
 - SQLite database: `data/chathsr.sqlite3`
 - Playwright profile: `data/playwright-profile/`
 - Imported session state: `data/storage_state.json`
+- Local JSONL exports: any path you pass to `rag crawl export-jsonl`
+- Websocket probe logs: any path you pass to `rag probe websocket --output`
 - Only post body text is indexed in the MVP.
 - Images are preserved as URLs in metadata, not OCR'd.
 
@@ -142,3 +180,6 @@ python -m compileall src
 - The fallback cheaper model is `gemini-3.1-flash-lite-preview`.
 - The default embedding model is `gemini-embedding-2-preview`.
 - `PLAYWRIGHT_STORAGE_STATE_PATH` can point to an imported `storage_state.json` and override the persistent profile.
+- `PLAYWRIGHT_CDP_URL` lets the crawler attach to an already-open local Chrome/Edge session instead of launching its own browser.
+- `--transport browser|custom-http` selects the crawl transport explicitly, and the default remains `browser`.
+- `rag probe websocket` is a local diagnostic command for CDP websocket event capture; it does not crawl posts by itself.

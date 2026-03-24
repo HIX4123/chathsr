@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -11,15 +12,21 @@ from chathsr.db import Database
 from chathsr.errors import ChathsrError
 from chathsr.gemini_client import GeminiClient
 from chathsr.indexing import index_posts
+from chathsr.post_exports import export_articles_jsonl, import_articles_jsonl
 from chathsr.retrieval import answer_question
 from chathsr.session_state import import_storage_state_file
+from chathsr.transports import DEFAULT_TRANSPORT, SUPPORTED_TRANSPORTS
+from chathsr.websocket_probe import run_websocket_probe, summarize_probe_file
 
 
 app = typer.Typer(no_args_is_help=True)
 crawl_app = typer.Typer(no_args_is_help=True)
 index_app = typer.Typer(no_args_is_help=True)
+probe_app = typer.Typer(no_args_is_help=True)
 app.add_typer(crawl_app, name="crawl")
 app.add_typer(index_app, name="index")
+app.add_typer(probe_app, name="probe")
+TRANSPORT_HELP = f"Crawl transport to use: {', '.join(SUPPORTED_TRANSPORTS)}."
 
 
 def _fail(exc: ChathsrError) -> typer.Exit:
@@ -76,10 +83,28 @@ def import_state(
         raise _fail(exc)
 
 
+@app.command("import-posts")
+def import_posts(
+    path: Path = typer.Argument(..., help="Path to a JSONL export file or directory."),
+) -> None:
+    """Import locally exported post JSONL files into SQLite."""
+    try:
+        with command_context("import-posts", detail=str(path)) as (_settings, db):
+            stats = import_articles_jsonl(path, db)
+            typer.echo(
+                f"Imported posts: files={stats['files']} articles={stats['articles']} "
+                f"new={stats['new_posts']} changed={stats['changed_posts']}"
+            )
+            typer.echo("Next step: python -m chathsr index changed-only")
+    except ChathsrError as exc:
+        raise _fail(exc)
+
+
 @crawl_app.command("backfill")
 def crawl_backfill(
     max_pages: int | None = typer.Option(None, help="Optional page limit for the initial backfill."),
     headless: bool = typer.Option(True, "--headless/--headful", help="Use the saved browser profile headlessly or with a visible browser."),
+    transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
 ) -> None:
     """Crawl the full 정보 category history into SQLite."""
     try:
@@ -88,11 +113,80 @@ def crawl_backfill(
             db,
         ):
             crawler = ArcaLiveCrawler(settings)
-            stats = crawler.crawl_backfill(db, max_pages=max_pages, headless=headless)
+            stats = crawler.crawl_backfill(
+                db,
+                max_pages=max_pages,
+                headless=headless,
+                transport_name=transport,
+            )
             typer.echo(
                 f"Backfill complete: pages={stats['pages']} articles={stats['articles']} "
                 f"new={stats['new_posts']} changed={stats['changed_posts']}"
             )
+    except ChathsrError as exc:
+        raise _fail(exc)
+
+
+@crawl_app.command("export-jsonl")
+def crawl_export_jsonl(
+    output: Path = typer.Argument(..., help="Destination JSONL file path."),
+    max_pages: int | None = typer.Option(None, help="Optional page limit for the export."),
+    headless: bool = typer.Option(True, "--headless/--headful", help="Use the active browser session headlessly or with a visible browser."),
+    transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
+) -> None:
+    """Crawl info posts and export them as JSONL for later import."""
+    try:
+        with command_context("crawl export-jsonl", detail=str(output)) as (
+            settings,
+            db,
+        ):
+            crawler = ArcaLiveCrawler(settings)
+            articles, stats = crawler.crawl_backfill_articles(
+                max_pages=max_pages,
+                headless=headless,
+                transport_name=transport,
+            )
+            count = export_articles_jsonl(output, articles)
+            db.set_crawl_state("last_export_jsonl_at", str(output.resolve()))
+            typer.echo(
+                f"Export complete: pages={stats['pages']} articles={count} output={output.resolve()}"
+            )
+    except ChathsrError as exc:
+        raise _fail(exc)
+
+
+@probe_app.command("websocket")
+def probe_websocket(
+    cdp_url: str = typer.Option(..., "--cdp-url", help="HTTP or WS URL for a remote-debugging Chrome/Edge instance."),
+    duration: int = typer.Option(60, min=1, help="How many seconds to observe websocket traffic."),
+    output: Path = typer.Option(..., "--output", help="JSONL file that will receive websocket probe records."),
+) -> None:
+    """Capture websocket-related CDP events from a remote-debugging browser."""
+    try:
+        with command_context("probe websocket", detail=f"cdp_url={cdp_url}") as (_settings, _db):
+            stats = asyncio.run(
+                run_websocket_probe(
+                    cdp_url=cdp_url,
+                    duration=duration,
+                    output_path=output,
+                )
+            )
+            typer.echo(
+                f"Probe complete: records={stats['records']} "
+                f"connections={stats['connections']} output={output.resolve()}"
+            )
+    except ChathsrError as exc:
+        raise _fail(exc)
+
+
+@probe_app.command("summarize")
+def probe_summarize(
+    path: Path = typer.Argument(..., help="Path to a websocket probe JSONL file."),
+) -> None:
+    """Summarize a previously captured websocket probe log."""
+    try:
+        with command_context("probe summarize", detail=str(path)) as (_settings, _db):
+            typer.echo(summarize_probe_file(path))
     except ChathsrError as exc:
         raise _fail(exc)
 
@@ -102,6 +196,7 @@ def sync(
     max_pages: int | None = typer.Option(None, help="Optional page limit for incremental sync."),
     headless: bool = typer.Option(True, "--headless/--headful", help="Use the saved browser profile headlessly or with a visible browser."),
     unchanged_limit: int = typer.Option(20, min=1, help="Stop after this many unchanged posts in a row."),
+    transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
 ) -> None:
     """Sync newly added or recently edited info posts."""
     try:
@@ -112,6 +207,7 @@ def sync(
                 max_pages=max_pages,
                 headless=headless,
                 unchanged_limit=unchanged_limit,
+                transport_name=transport,
             )
             typer.echo(
                 f"Sync complete: pages={stats['pages']} articles={stats['articles']} "
@@ -184,12 +280,18 @@ def ask(
 def refresh(
     max_pages: int | None = typer.Option(None, help="Optional page limit for the incremental sync step."),
     headless: bool = typer.Option(True, "--headless/--headful", help="Use the saved browser profile headlessly or with a visible browser."),
+    transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
 ) -> None:
     """Run sync, then embed only new or changed posts."""
     try:
         with command_context("refresh", detail=f"max_pages={max_pages}") as (settings, db):
             crawler = ArcaLiveCrawler(settings)
-            sync_stats = crawler.sync(db, max_pages=max_pages, headless=headless)
+            sync_stats = crawler.sync(
+                db,
+                max_pages=max_pages,
+                headless=headless,
+                transport_name=transport,
+            )
             gemini = GeminiClient(settings)
             indexed = index_posts(
                 db,

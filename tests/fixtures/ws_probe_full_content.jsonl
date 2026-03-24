@@ -1,0 +1,2 @@
+{"timestamp":"2026-03-24T00:00:00+00:00","page_url":"https://arca.live/b/hkstarrail","socket_url":"wss://arca.live/ws","direction":"meta","opcode":"created","payload_text":"","payload_size":0}
+{"timestamp":"2026-03-24T00:00:01+00:00","page_url":"https://arca.live/b/hkstarrail","socket_url":"wss://arca.live/ws","direction":"inbound","opcode":"1","payload_text":"{\"title\":\"반디 픽업 정리\",\"body\":\"반디는 격파 중심 조합을 사용하고 속도 세팅이 중요하다.\"}","payload_size":113}

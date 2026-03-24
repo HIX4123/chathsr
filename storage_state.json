@@ -1,0 +1,145 @@
+{
+  "cookies": [
+    {
+      "name": "arca.nick",
+      "value": "%E3%85%87%E3%85%87",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1808835679.153625,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.nick.sig",
+      "value": "ETcGz1yS4GbrdOJZZg18BIpnFrg",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1808835679.153742,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.password",
+      "value": "JOGsHX1M",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1808835679.153773,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.password.sig",
+      "value": "VKgTco0jb_1CfAUPqXY9fk2XAYs",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1808835679.153796,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.csrf",
+      "value": "clQulczADz9iUangDxJKXxdg",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.csrf.sig",
+      "value": "Gp2cU89JyXwKfWfQp-Vq5kD45jk",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "visited-channel",
+      "value": "[{%22name%22:%22%EB%B6%95%EA%B4%B4%20%EC%8A%A4%ED%83%80%EB%A0%88%EC%9D%BC%22%2C%22slug%22:%22hkstarrail%22}]",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1805811693,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "campaign.session",
+      "value": "s%3AG4aOPGMErclozHyWhoEFys6YeFPROhU-.InYgYDWBxcqeDGoMw0wVBevieeTkTHlhmGnhhpD5foc",
+      "domain": "arca.live",
+      "path": "/",
+      "expires": 1774279293.244972,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.1.2141337964.1774275680",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1808835693.280472,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.session2",
+      "value": "rmsnVu-gz1uFLS_xlwQ7XEA4c4ut8TOb",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1774362093.296011,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.session2.sig",
+      "value": "uvstJengtRikgFQT-DQnAJFj_k4",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1774362093.296155,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.at",
+      "value": "eyJ0eXAiOiJqd3QiLCJhbGciOiJFUzM4NCIsImtpZCI6IjAxOWMzOTQyLTljMjgtNzY5Yi1iYTNlLTllM2IwMDNiNmNmZiJ9.eyJleHAiOjE3NzQ4ODA0OTIsImlhdCI6MTc3NDI3NTY5MiwibmJmIjoxNzc0Mjc1NjkyLCJzdWIiOiI3ZDYzZjUzMy1hZTcwLTQ0NjEtYjdmMy03MTY0MzVhYjczYjEiLCJ4X2ZsYWd2MSI6NjU1NTMsInhfaXNzdWVkX2lwYWRkciI6IjIxMS41NS4zNi4xNTEiLCJ4X2lzc3VlZF9yZWdpb24iOiJLUiJ9.Angw2GNdUioO358LMHYquBWLA02OpB2M0NCWVON_3Kw0d8prDla32G8PT2MqA2Huk-H14cOH8xrTFzOa5YvksDJqlC4vpTpNbg9K5pFg0on_IqXFJxirMscJ2MY0kUZ2",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1774880492.776751,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "arca.at.sig",
+      "value": "MTVzGo57gcOIAa0iXwzpoOV-NMk",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1774880492.776904,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_EVNC8JD9DJ",
+      "value": "GS2.1.s1774275680$o1$g1$t1774275693$j47$l0$h0",
+      "domain": ".arca.live",
+      "path": "/",
+      "expires": 1808835693.280272,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

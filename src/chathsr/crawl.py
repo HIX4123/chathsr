@@ -1,31 +1,45 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-
-from playwright.sync_api import Browser, BrowserContext, Page, TimeoutError, sync_playwright
+from collections.abc import Callable
 
 from chathsr.config import Settings
 from chathsr.db import Database
-from chathsr.errors import CrawlBlockedError, StorageStateError
+from chathsr.models import ParsedArticle
 from chathsr.parsing import (
     build_category_page_url,
     find_category_slug,
     parse_article,
     parse_board_posts,
 )
+from chathsr.transports import (
+    DEFAULT_TRANSPORT,
+    BrowserTransport,
+    FetchTransport,
+    create_transport,
+)
 from chathsr.utils import utc_now_iso
 
 
+TransportFactory = Callable[..., FetchTransport]
+
+
 class ArcaLiveCrawler:
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        transport_factory: TransportFactory = create_transport,
+    ) -> None:
         self.settings = settings
+        self.transport_factory = transport_factory
 
     def authenticate(self) -> None:
-        with self._browser_session(headless=False, force_persistent=True) as page:
-            page.goto(self.settings.board_url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(2000)
-            print("브라우저가 열렸습니다. Cloudflare 통과와 ArcaLive 로그인을 완료한 뒤 Enter를 누르세요.")
-            input()
+        with BrowserTransport(
+            self.settings,
+            headless=False,
+            force_persistent=True,
+        ) as transport:
+            transport.interactive_auth()
 
     def crawl_backfill(
         self,
@@ -33,45 +47,54 @@ class ArcaLiveCrawler:
         *,
         max_pages: int | None = None,
         headless: bool = True,
+        transport_name: str = DEFAULT_TRANSPORT,
     ) -> dict[str, int]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
-        with self._browser_session(headless=headless) as page:
-            category_slug = self._resolve_category_slug(page)
+        with self.transport_factory(
+            self.settings,
+            transport_name,
+            headless=headless,
+        ) as transport:
+            category_slug = self._resolve_category_slug(transport)
             db.set_crawl_state("category_slug", category_slug)
-            seen_ids: set[int] = set()
-            page_number = 1
-            while True:
-                if max_pages is not None and page_number > max_pages:
-                    break
-                board_html = self._fetch_html(
-                    page,
-                    build_category_page_url(
-                        self.settings.board_url,
-                        category_slug=category_slug,
-                        page=page_number,
-                    ),
-                )
-                refs = [
-                    ref
-                    for ref in parse_board_posts(board_html, board_url=self.settings.board_url)
-                    if not ref.is_notice and ref.post_id not in seen_ids
-                ]
-                if not refs:
-                    break
-                stats["pages"] += 1
-                for ref in refs:
-                    article_html = self._fetch_html(page, ref.url)
-                    article = parse_article(article_html, url=ref.url)
-                    is_new, changed = db.upsert_article(article)
-                    if is_new:
-                        stats["new_posts"] += 1
-                    if changed:
-                        stats["changed_posts"] += 1
-                    stats["articles"] += 1
-                    seen_ids.add(ref.post_id)
-                page_number += 1
+            articles = self._collect_backfill_articles(
+                transport,
+                category_slug=category_slug,
+                max_pages=max_pages,
+                stats=stats,
+            )
+            for article in articles:
+                is_new, changed = db.upsert_article(article)
+                if is_new:
+                    stats["new_posts"] += 1
+                if changed:
+                    stats["changed_posts"] += 1
+                stats["articles"] += 1
         db.set_crawl_state("last_backfill_at", utc_now_iso())
         return stats
+
+    def crawl_backfill_articles(
+        self,
+        *,
+        max_pages: int | None = None,
+        headless: bool = True,
+        transport_name: str = DEFAULT_TRANSPORT,
+    ) -> tuple[list[ParsedArticle], dict[str, int]]:
+        stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
+        with self.transport_factory(
+            self.settings,
+            transport_name,
+            headless=headless,
+        ) as transport:
+            category_slug = self._resolve_category_slug(transport)
+            articles = self._collect_backfill_articles(
+                transport,
+                category_slug=category_slug,
+                max_pages=max_pages,
+                stats=stats,
+            )
+        stats["articles"] = len(articles)
+        return articles, stats
 
     def sync(
         self,
@@ -80,10 +103,15 @@ class ArcaLiveCrawler:
         max_pages: int | None = None,
         headless: bool = True,
         unchanged_limit: int = 20,
+        transport_name: str = DEFAULT_TRANSPORT,
     ) -> dict[str, int]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
-        with self._browser_session(headless=headless) as page:
-            category_slug = self._resolve_category_slug(page)
+        with self.transport_factory(
+            self.settings,
+            transport_name,
+            headless=headless,
+        ) as transport:
+            category_slug = self._resolve_category_slug(transport)
             db.set_crawl_state("category_slug", category_slug)
             unchanged_streak = 0
             seen_ids: set[int] = set()
@@ -93,7 +121,7 @@ class ArcaLiveCrawler:
                 if max_pages is not None and page_number > max_pages:
                     break
                 board_html = self._fetch_html(
-                    page,
+                    transport,
                     build_category_page_url(
                         self.settings.board_url,
                         category_slug=category_slug,
@@ -109,7 +137,7 @@ class ArcaLiveCrawler:
                     break
                 stats["pages"] += 1
                 for ref in refs:
-                    article_html = self._fetch_html(page, ref.url)
+                    article_html = self._fetch_html(transport, ref.url)
                     article = parse_article(article_html, url=ref.url)
                     is_new, changed = db.upsert_article(article)
                     if is_new:
@@ -128,82 +156,51 @@ class ArcaLiveCrawler:
         db.set_crawl_state("last_sync_at", utc_now_iso())
         return stats
 
-    def _resolve_category_slug(self, page: Page) -> str:
-        board_html = self._fetch_html(page, self.settings.board_url)
+    def _resolve_category_slug(self, transport: FetchTransport) -> str:
+        board_html = self._fetch_html(transport, self.settings.board_url)
         return find_category_slug(
             board_html,
             board_url=self.settings.board_url,
             category_label=self.settings.category_label,
         )
 
-    @contextmanager
-    def _browser_session(self, *, headless: bool, force_persistent: bool = False) -> Page:
-        with sync_playwright() as playwright:
-            browser: Browser | None = None
-            if not force_persistent and self.settings.should_use_storage_state:
-                context, browser = self._launch_storage_state_context(
-                    playwright,
-                    headless=headless,
-                )
-            else:
-                context = self._launch_persistent_context(playwright, headless=headless)
-            try:
-                page = self._get_primary_page(context)
-                page.set_default_timeout(60000)
-                yield page
-            finally:
-                context.close()
-                if browser is not None:
-                    browser.close()
-
-    def _launch_persistent_context(self, playwright, *, headless: bool) -> BrowserContext:
-        return playwright.chromium.launch_persistent_context(
-            str(self.settings.playwright_profile_dir),
-            headless=headless,
-        )
-
-    def _launch_storage_state_context(
+    def _collect_backfill_articles(
         self,
-        playwright,
+        transport: FetchTransport,
         *,
-        headless: bool,
-    ) -> tuple[BrowserContext, Browser]:
-        storage_state_path = self.settings.playwright_storage_state_path
-        if not storage_state_path.exists():
-            if self.settings.playwright_storage_state_path_configured:
-                raise StorageStateError(
-                    "PLAYWRIGHT_STORAGE_STATE_PATH points to a missing file: "
-                    f"{storage_state_path}"
-                )
-            raise StorageStateError(
-                "No storage state file is available. Run `rag import-state <path>` "
-                "or unset PLAYWRIGHT_STORAGE_STATE_PATH to use `rag auth`."
+        category_slug: str,
+        max_pages: int | None,
+        stats: dict[str, int],
+    ) -> list[ParsedArticle]:
+        seen_ids: set[int] = set()
+        page_number = 1
+        articles: list[ParsedArticle] = []
+        while True:
+            if max_pages is not None and page_number > max_pages:
+                break
+            board_html = self._fetch_html(
+                transport,
+                build_category_page_url(
+                    self.settings.board_url,
+                    category_slug=category_slug,
+                    page=page_number,
+                ),
             )
-        browser = playwright.chromium.launch(headless=headless)
-        context = browser.new_context(storage_state=str(storage_state_path))
-        return context, browser
+            refs = [
+                ref
+                for ref in parse_board_posts(board_html, board_url=self.settings.board_url)
+                if not ref.is_notice and ref.post_id not in seen_ids
+            ]
+            if not refs:
+                break
+            stats["pages"] += 1
+            for ref in refs:
+                article_html = self._fetch_html(transport, ref.url)
+                article = parse_article(article_html, url=ref.url)
+                articles.append(article)
+                seen_ids.add(ref.post_id)
+            page_number += 1
+        return articles
 
-    def _get_primary_page(self, context: BrowserContext) -> Page:
-        if context.pages:
-            return context.pages[0]
-        return context.new_page()
-
-    def _fetch_html(self, page: Page, url: str) -> str:
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(1500)
-        except TimeoutError as exc:
-            raise CrawlBlockedError(f"Timed out while loading {url}") from exc
-        html = page.content()
-        if "Just a moment..." in html or "Enable JavaScript and cookies to continue" in html:
-            if self.settings.should_use_storage_state:
-                raise CrawlBlockedError(
-                    "ArcaLive blocked the current browser session. The imported "
-                    "state file is missing, expired, or incomplete. Export a fresh "
-                    "Playwright state or browser cookie JSON on an external machine "
-                    "and run `rag import-state <path>` again."
-                )
-            raise CrawlBlockedError(
-                "ArcaLive blocked the current browser session. Run `rag auth` to refresh the saved profile."
-            )
-        return html
+    def _fetch_html(self, transport: FetchTransport, url: str) -> str:
+        return transport.fetch(url)
