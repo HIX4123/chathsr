@@ -105,6 +105,7 @@ def crawl_backfill(
     max_pages: int | None = typer.Option(None, help="Optional page limit for the initial backfill."),
     headless: bool = typer.Option(True, "--headless/--headful", help="Use the saved browser profile headlessly or with a visible browser."),
     transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
+    verbose: bool = typer.Option(False, "--verbose", help="Print crawl progress and requested URLs."),
 ) -> None:
     """Crawl the full 정보 category history into SQLite."""
     try:
@@ -118,6 +119,7 @@ def crawl_backfill(
                 max_pages=max_pages,
                 headless=headless,
                 transport_name=transport,
+                verbose=verbose,
             )
             typer.echo(
                 f"Backfill complete: pages={stats['pages']} articles={stats['articles']} "
@@ -133,6 +135,7 @@ def crawl_export_jsonl(
     max_pages: int | None = typer.Option(None, help="Optional page limit for the export."),
     headless: bool = typer.Option(True, "--headless/--headful", help="Use the active browser session headlessly or with a visible browser."),
     transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
+    verbose: bool = typer.Option(False, "--verbose", help="Print crawl progress and requested URLs."),
 ) -> None:
     """Crawl info posts and export them as JSONL for later import."""
     try:
@@ -145,6 +148,7 @@ def crawl_export_jsonl(
                 max_pages=max_pages,
                 headless=headless,
                 transport_name=transport,
+                verbose=verbose,
             )
             count = export_articles_jsonl(output, articles)
             db.set_crawl_state("last_export_jsonl_at", str(output.resolve()))
@@ -197,6 +201,7 @@ def sync(
     headless: bool = typer.Option(True, "--headless/--headful", help="Use the saved browser profile headlessly or with a visible browser."),
     unchanged_limit: int = typer.Option(20, min=1, help="Stop after this many unchanged posts in a row."),
     transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
+    verbose: bool = typer.Option(False, "--verbose", help="Print crawl progress and requested URLs."),
 ) -> None:
     """Sync newly added or recently edited info posts."""
     try:
@@ -208,6 +213,7 @@ def sync(
                 headless=headless,
                 unchanged_limit=unchanged_limit,
                 transport_name=transport,
+                verbose=verbose,
             )
             typer.echo(
                 f"Sync complete: pages={stats['pages']} articles={stats['articles']} "
@@ -281,6 +287,7 @@ def refresh(
     max_pages: int | None = typer.Option(None, help="Optional page limit for the incremental sync step."),
     headless: bool = typer.Option(True, "--headless/--headful", help="Use the saved browser profile headlessly or with a visible browser."),
     transport: str = typer.Option(DEFAULT_TRANSPORT, "--transport", help=TRANSPORT_HELP),
+    verbose: bool = typer.Option(False, "--verbose", help="Print crawl progress and requested URLs."),
 ) -> None:
     """Run sync, then embed only new or changed posts."""
     try:
@@ -291,6 +298,7 @@ def refresh(
                 max_pages=max_pages,
                 headless=headless,
                 transport_name=transport,
+                verbose=verbose,
             )
             gemini = GeminiClient(settings)
             indexed = index_posts(

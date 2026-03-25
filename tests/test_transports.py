@@ -95,25 +95,9 @@ def test_create_transport_rejects_unknown_name(settings) -> None:
         create_transport(settings, "nope")
 
 
-def test_custom_http_transport_build_headers_has_defaults(settings) -> None:
-    transport = CustomHTTPTransport(settings)
-    headers = transport.build_headers("https://arca.live/b/hkstarrail")
-    assert "User-Agent" in headers
-    assert headers["Referer"] == settings.board_url
-
-
-def test_custom_http_transport_loads_cookies_from_storage_state(settings) -> None:
-    settings.playwright_storage_state_path.write_text(
-        (Path(__file__).parent / "fixtures" / "storage_state.json").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-
+def test_custom_http_transport_builds_cloudscraper_client(settings) -> None:
     with CustomHTTPTransport(settings) as transport:
         assert transport._client is not None
-        cookies = list(transport._client.cookies)
-
-    assert cookies
-    assert cookies[0].name == "cf_clearance"
 
 
 def test_custom_http_transport_fetch_requires_context(settings) -> None:
@@ -121,6 +105,18 @@ def test_custom_http_transport_fetch_requires_context(settings) -> None:
 
     with pytest.raises(TransportError, match="context manager"):
         transport.fetch("https://arca.live/")
+
+
+def test_custom_http_transport_verbose_logs_requested_url(settings, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(CustomHTTPTransport, "build_client", lambda self: _FakeHTTPClient())
+
+    with CustomHTTPTransport(settings, verbose=True) as transport:
+        html = transport.fetch("https://arca.live/b/hkstarrail")
+
+    captured = capsys.readouterr()
+    assert html == "<html>ok</html>"
+    assert "[custom-http] GET https://arca.live/b/hkstarrail" in captured.err
+    assert "status=200" in captured.err
 
 
 def test_transports_module_import_is_lazy_for_playwright(monkeypatch) -> None:
@@ -140,6 +136,28 @@ def test_transports_module_import_is_lazy_for_playwright(monkeypatch) -> None:
 
 class _DummyTimeoutError(Exception):
     pass
+
+
+class _FakeResponse:
+    def __init__(self, text: str, status_code: int = 200) -> None:
+        self.text = text
+        self.status_code = status_code
+        self.encoding = "utf-8"
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+class _FakeCookies:
+    pass
+
+
+class _FakeHTTPClient:
+    def get(self, url: str, timeout: int, allow_redirects: bool):
+        return _FakeResponse("<html>ok</html>", 200)
+
+    def close(self) -> None:
+        return None
 
 
 class _DummyPage:

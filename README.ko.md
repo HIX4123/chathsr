@@ -45,12 +45,14 @@ TOP_K=6
 
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --verbose
 ```
 
 3. browser transport가 막히면 로컬 fallback으로 전환해 반복 검증합니다.
 
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http --verbose
 ```
 
 4. 크롤링이 실제로 성공한 뒤에만 RAG 단계로 넘어갑니다.
@@ -99,6 +101,7 @@ SQLite에 바로 넣지 않고 JSONL로 내보냅니다.
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl
 rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http
+rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http --verbose
 ```
 
 새로 올라온 글이나 수정된 글을 동기화합니다.
@@ -106,6 +109,7 @@ rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http
 ```bash
 rag sync
 rag sync --transport custom-http
+rag sync --transport custom-http --verbose
 ```
 
 새 글 또는 변경된 글만 임베딩합니다.
@@ -131,6 +135,7 @@ rag ask "로프 캐릭터 육성 우선순위가 뭐야?"
 ```bash
 rag refresh
 rag refresh --transport custom-http
+rag refresh --transport custom-http --verbose
 ```
 
 로컬 remote-debugging 브라우저의 websocket 트래픽을 기록하고 요약합니다.
@@ -210,5 +215,6 @@ python -m compileall src
 - `PLAYWRIGHT_STORAGE_STATE_PATH`는 가져온 `storage_state.json`을 가리키며, 이 값이 있으면 persistent 프로필보다 우선합니다.
 - `PLAYWRIGHT_CDP_URL`를 설정하면, 크롤러가 자체 브라우저를 띄우는 대신 이미 열려 있는 로컬 Chrome/Edge 세션에 붙습니다.
 - `--transport browser|custom-http`로 수집 transport를 명시적으로 선택할 수 있고, 기본값은 계속 `browser`입니다.
+- `--verbose`를 붙이면 crawler 단계와 실제 요청 URL이 stderr에 출력됩니다.
 - `rag probe websocket`은 로컬 브라우저의 CDP websocket 이벤트를 기록하는 진단용 명령이며, 게시글 수집을 직접 수행하지는 않습니다.
 - 현재 ArcaLive 기준 websocket은 새글 경로 신호를 주는 증분 트리거로 보고, 실제 게시글 본문은 별도 transport로 수집하는 것을 기본값으로 둡니다.

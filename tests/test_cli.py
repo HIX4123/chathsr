@@ -12,6 +12,7 @@ def test_crawl_backfill_help_includes_transport_option() -> None:
     result = runner.invoke(app, ["crawl", "backfill", "--help"])
     assert result.exit_code == 0
     assert "--transport" in result.stdout
+    assert "--verbose" in result.stdout
     assert "custom-http" in result.stdout
 
 
@@ -19,6 +20,7 @@ def test_crawl_export_jsonl_help_includes_transport_option() -> None:
     result = runner.invoke(app, ["crawl", "export-jsonl", "--help"])
     assert result.exit_code == 0
     assert "--transport" in result.stdout
+    assert "--verbose" in result.stdout
     assert "custom-http" in result.stdout
 
 
@@ -26,6 +28,7 @@ def test_sync_help_includes_transport_option() -> None:
     result = runner.invoke(app, ["sync", "--help"])
     assert result.exit_code == 0
     assert "--transport" in result.stdout
+    assert "--verbose" in result.stdout
     assert "custom-http" in result.stdout
 
 
@@ -33,6 +36,7 @@ def test_refresh_help_includes_transport_option() -> None:
     result = runner.invoke(app, ["refresh", "--help"])
     assert result.exit_code == 0
     assert "--transport" in result.stdout
+    assert "--verbose" in result.stdout
     assert "custom-http" in result.stdout
 
 

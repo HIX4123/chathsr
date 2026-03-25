@@ -79,7 +79,14 @@ def test_crawler_sync_uses_injected_transport(settings) -> None:
 
 
 def _dummy_transport_factory(mapping: dict[str, str]):
-    def factory(settings, transport_name: str, *, headless: bool = True, force_persistent: bool = False):
+    def factory(
+        settings,
+        transport_name: str,
+        *,
+        headless: bool = True,
+        force_persistent: bool = False,
+        verbose: bool = False,
+    ):
         return _DummyTransport(mapping)
 
     return factory

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from chathsr.config import Settings
@@ -52,10 +53,12 @@ class BrowserTransport:
         *,
         headless: bool = True,
         force_persistent: bool = False,
+        verbose: bool = False,
     ) -> None:
         self.settings = settings
         self.headless = headless
         self.force_persistent = force_persistent
+        self.verbose = verbose
         self._mode = "profile"
         self._timeout_error, sync_playwright = _load_playwright_sync_api()
         self._playwright_manager = sync_playwright()
@@ -82,6 +85,7 @@ class BrowserTransport:
 
     def interactive_auth(self) -> None:
         page = self._require_page()
+        self._emit_verbose(f"AUTH open {self.settings.board_url}")
         page.goto(self.settings.board_url, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(2000)
         print("브라우저가 열렸습니다. Cloudflare 통과와 ArcaLive 로그인을 완료한 뒤 Enter를 누르세요.")
@@ -89,12 +93,14 @@ class BrowserTransport:
 
     def fetch(self, url: str) -> str:
         page = self._require_page()
+        self._emit_verbose(f"GET {url}")
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(1500)
         except self._timeout_error as exc:
             raise CrawlBlockedError(f"Timed out while loading {url}") from exc
         html = page.content()
+        self._emit_verbose(f"OK {url} ({len(html.encode('utf-8'))} bytes)")
         if "Just a moment..." in html or "Enable JavaScript and cookies to continue" in html:
             raise CrawlBlockedError(self._blocked_message())
         return html
@@ -120,15 +126,22 @@ class BrowserTransport:
     def _start(self) -> None:
         if not self.force_persistent and self.settings.should_use_cdp:
             self._mode = "cdp"
+            self._emit_verbose(f"browser mode=cdp endpoint={self.settings.playwright_cdp_url}")
             self._browser, self._context, self._page = self._connect_cdp_page()
             self._close_context = False
             self._close_page = True
         elif not self.force_persistent and self.settings.should_use_storage_state:
             self._mode = "storage-state"
+            self._emit_verbose(
+                f"browser mode=storage-state path={self.settings.playwright_storage_state_path}"
+            )
             self._context, self._browser = self._launch_storage_state_context()
             self._close_browser = True
         else:
             self._mode = "profile"
+            self._emit_verbose(
+                f"browser mode=profile path={self.settings.playwright_profile_dir}"
+            )
             self._context = self._launch_persistent_context()
 
         if self._page is None:
@@ -199,6 +212,11 @@ class BrowserTransport:
             )
         return "ArcaLive blocked the current browser session. Run `rag auth` to refresh the saved profile."
 
+    def _emit_verbose(self, message: str) -> None:
+        if not self.verbose:
+            return
+        print(f"[browser] {message}", file=sys.stderr, flush=True)
+
 
 def create_transport(
     settings: Settings,
@@ -206,18 +224,21 @@ def create_transport(
     *,
     headless: bool = True,
     force_persistent: bool = False,
+    verbose: bool = False,
 ) -> FetchTransport:
     if transport_name == "browser":
         return BrowserTransport(
             settings,
             headless=headless,
             force_persistent=force_persistent,
+            verbose=verbose,
         )
     if transport_name == "custom-http":
         return CustomHTTPTransport(
             settings,
             headless=headless,
             force_persistent=force_persistent,
+            verbose=verbose,
         )
     supported = ", ".join(SUPPORTED_TRANSPORTS)
     raise UnsupportedTransportError(

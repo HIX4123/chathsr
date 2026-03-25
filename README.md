@@ -45,12 +45,14 @@ For local execution, keep `DATA_DIR`, `DATABASE_PATH`, browser state, and crawl 
 
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --verbose
 ```
 
 3. If browser transport is blocked, switch to the repo-local fallback and iterate locally:
 
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http --verbose
 ```
 
 4. Only after crawl succeeds, continue into RAG:
@@ -99,6 +101,7 @@ Export crawled posts as JSONL instead of writing them straight into SQLite:
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl
 rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http
+rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http --verbose
 ```
 
 Sync newly added or edited posts:
@@ -106,6 +109,7 @@ Sync newly added or edited posts:
 ```bash
 rag sync
 rag sync --transport custom-http
+rag sync --transport custom-http --verbose
 ```
 
 Embed only new or changed posts:
@@ -131,6 +135,7 @@ Run sync plus incremental indexing:
 ```bash
 rag refresh
 rag refresh --transport custom-http
+rag refresh --transport custom-http --verbose
 ```
 
 Probe websocket traffic from a local remote-debugging browser and summarize the result:
@@ -210,5 +215,6 @@ python -m compileall src
 - `PLAYWRIGHT_STORAGE_STATE_PATH` can point to an imported `storage_state.json` and override the persistent profile.
 - `PLAYWRIGHT_CDP_URL` lets the crawler attach to an already-open local Chrome/Edge session instead of launching its own browser.
 - `--transport browser|custom-http` selects the crawl transport explicitly, and the default remains `browser`.
+- `--verbose` prints crawler phases and requested URLs to stderr during crawl/sync/refresh commands.
 - `rag probe websocket` is a local diagnostic command for CDP websocket event capture; it does not crawl posts by itself.
 - In the current ArcaLive workflow, websocket payloads are treated as incremental triggers, while actual post HTML must still come from browser or HTTP transport.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 
 from chathsr.config import Settings
@@ -38,6 +39,7 @@ class ArcaLiveCrawler:
             self.settings,
             headless=False,
             force_persistent=True,
+            verbose=True,
         ) as transport:
             transport.interactive_auth()
 
@@ -48,20 +50,25 @@ class ArcaLiveCrawler:
         max_pages: int | None = None,
         headless: bool = True,
         transport_name: str = DEFAULT_TRANSPORT,
+        verbose: bool = False,
     ) -> dict[str, int]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
         with self.transport_factory(
             self.settings,
             transport_name,
             headless=headless,
+            verbose=verbose,
         ) as transport:
+            self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
+            self._emit_verbose(verbose, f"category slug resolved: {category_slug}")
             db.set_crawl_state("category_slug", category_slug)
             articles = self._collect_backfill_articles(
                 transport,
                 category_slug=category_slug,
                 max_pages=max_pages,
                 stats=stats,
+                verbose=verbose,
             )
             for article in articles:
                 is_new, changed = db.upsert_article(article)
@@ -79,19 +86,24 @@ class ArcaLiveCrawler:
         max_pages: int | None = None,
         headless: bool = True,
         transport_name: str = DEFAULT_TRANSPORT,
+        verbose: bool = False,
     ) -> tuple[list[ParsedArticle], dict[str, int]]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
         with self.transport_factory(
             self.settings,
             transport_name,
             headless=headless,
+            verbose=verbose,
         ) as transport:
+            self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
+            self._emit_verbose(verbose, f"category slug resolved: {category_slug}")
             articles = self._collect_backfill_articles(
                 transport,
                 category_slug=category_slug,
                 max_pages=max_pages,
                 stats=stats,
+                verbose=verbose,
             )
         stats["articles"] = len(articles)
         return articles, stats
@@ -104,14 +116,18 @@ class ArcaLiveCrawler:
         headless: bool = True,
         unchanged_limit: int = 20,
         transport_name: str = DEFAULT_TRANSPORT,
+        verbose: bool = False,
     ) -> dict[str, int]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
         with self.transport_factory(
             self.settings,
             transport_name,
             headless=headless,
+            verbose=verbose,
         ) as transport:
+            self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
+            self._emit_verbose(verbose, f"category slug resolved: {category_slug}")
             db.set_crawl_state("category_slug", category_slug)
             unchanged_streak = 0
             seen_ids: set[int] = set()
@@ -134,9 +150,12 @@ class ArcaLiveCrawler:
                     if not ref.is_notice and ref.post_id not in seen_ids
                 ]
                 if not refs:
+                    self._emit_verbose(verbose, f"page {page_number}: no more post refs; stop sync")
                     break
+                self._emit_verbose(verbose, f"page {page_number}: found {len(refs)} post refs")
                 stats["pages"] += 1
                 for ref in refs:
+                    self._emit_verbose(verbose, f"fetch article {ref.post_id}: {ref.url}")
                     article_html = self._fetch_html(transport, ref.url)
                     article = parse_article(article_html, url=ref.url)
                     is_new, changed = db.upsert_article(article)
@@ -150,6 +169,10 @@ class ArcaLiveCrawler:
                     stats["articles"] += 1
                     seen_ids.add(ref.post_id)
                     if unchanged_streak >= unchanged_limit:
+                        self._emit_verbose(
+                            verbose,
+                            f"stop sync after {unchanged_streak} unchanged posts in a row",
+                        )
                         should_stop = True
                         break
                 page_number += 1
@@ -171,6 +194,7 @@ class ArcaLiveCrawler:
         category_slug: str,
         max_pages: int | None,
         stats: dict[str, int],
+        verbose: bool,
     ) -> list[ParsedArticle]:
         seen_ids: set[int] = set()
         page_number = 1
@@ -192,9 +216,12 @@ class ArcaLiveCrawler:
                 if not ref.is_notice and ref.post_id not in seen_ids
             ]
             if not refs:
+                self._emit_verbose(verbose, f"page {page_number}: no more post refs; stop backfill")
                 break
+            self._emit_verbose(verbose, f"page {page_number}: found {len(refs)} post refs")
             stats["pages"] += 1
             for ref in refs:
+                self._emit_verbose(verbose, f"fetch article {ref.post_id}: {ref.url}")
                 article_html = self._fetch_html(transport, ref.url)
                 article = parse_article(article_html, url=ref.url)
                 articles.append(article)
@@ -204,3 +231,8 @@ class ArcaLiveCrawler:
 
     def _fetch_html(self, transport: FetchTransport, url: str) -> str:
         return transport.fetch(url)
+
+    def _emit_verbose(self, verbose: bool, message: str) -> None:
+        if not verbose:
+            return
+        print(f"[crawl] {message}", file=sys.stderr, flush=True)
