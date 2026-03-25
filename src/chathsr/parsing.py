@@ -171,7 +171,7 @@ def parse_article(html: str, *, url: str) -> ParsedArticle:
         if img.get("src")
     )
     body_text = extract_article_text(content_root)
-    if not body_text:
+    if not body_text and not image_urls:
         raise ParseError("Article body is empty after normalization.")
 
     post_id = parse_post_id(url)

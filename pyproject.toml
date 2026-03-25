@@ -15,6 +15,7 @@ dependencies = [
   "python-dotenv>=1.1,<2",
   "typer>=0.24,<1",
   "websockets>=16,<17",
+  "cloudscraper"
 ]
 
 [project.optional-dependencies]

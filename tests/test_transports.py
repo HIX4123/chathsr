@@ -110,7 +110,7 @@ def test_custom_http_transport_loads_cookies_from_storage_state(settings) -> Non
 
     with CustomHTTPTransport(settings) as transport:
         assert transport._client is not None
-        cookies = list(transport._client.cookie_jar)
+        cookies = list(transport._client.cookies)
 
     assert cookies
     assert cookies[0].name == "cf_clearance"

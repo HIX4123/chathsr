@@ -57,3 +57,24 @@ def test_parse_article_extracts_body_and_images() -> None:
     assert "반디는 격파 특화 딜러다." in article.body_text
     assert "속도 150 이상" in article.body_text
     assert article.image_urls == ["https://arca.live/files/guide.png"]
+
+
+def test_parse_article_allows_image_only_posts() -> None:
+    html = """
+    <html>
+      <body>
+        <div class="article-head">
+          <div class="title">
+            <span class="badge badge-success">정보</span>
+            이미지 공지
+          </div>
+        </div>
+        <div class="article-content">
+          <p><img src="/files/image-only.png" /></p>
+        </div>
+      </body>
+    </html>
+    """
+    article = parse_article(html, url="https://arca.live/b/hkstarrail/23456789")
+    assert article.body_text == ""
+    assert article.image_urls == ["https://arca.live/files/image-only.png"]

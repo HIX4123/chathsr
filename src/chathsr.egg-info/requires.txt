@@ -3,6 +3,8 @@ google-genai<2,>=1.68
 playwright<2,>=1.58
 python-dotenv<2,>=1.1
 typer<1,>=0.24
+websockets<17,>=16
+cloudscraper
 
 [dev]
 pytest<9,>=8.3
