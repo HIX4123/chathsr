@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import builtins
+import importlib
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,8 +19,8 @@ def test_browser_transport_uses_cdp_when_configured(settings, monkeypatch) -> No
     chromium = _DummyChromium(calls)
 
     monkeypatch.setattr(
-        "chathsr.transports.sync_playwright",
-        lambda: _DummyPlaywrightManager(chromium, calls),
+        "chathsr.transports._load_playwright_sync_api",
+        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
     )
 
     with BrowserTransport(settings, headless=True) as transport:
@@ -36,8 +39,8 @@ def test_browser_transport_uses_storage_state_when_available(settings, monkeypat
     chromium = _DummyChromium(calls)
 
     monkeypatch.setattr(
-        "chathsr.transports.sync_playwright",
-        lambda: _DummyPlaywrightManager(chromium, calls),
+        "chathsr.transports._load_playwright_sync_api",
+        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
     )
 
     with BrowserTransport(settings, headless=True) as transport:
@@ -52,8 +55,8 @@ def test_browser_transport_falls_back_to_persistent_profile(settings, monkeypatc
     chromium = _DummyChromium(calls)
 
     monkeypatch.setattr(
-        "chathsr.transports.sync_playwright",
-        lambda: _DummyPlaywrightManager(chromium, calls),
+        "chathsr.transports._load_playwright_sync_api",
+        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
     )
 
     with BrowserTransport(settings, headless=True) as transport:
@@ -79,8 +82,8 @@ def test_create_transport_returns_browser_transport(settings, monkeypatch) -> No
     chromium = _DummyChromium(calls)
 
     monkeypatch.setattr(
-        "chathsr.transports.sync_playwright",
-        lambda: _DummyPlaywrightManager(chromium, calls),
+        "chathsr.transports._load_playwright_sync_api",
+        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
     )
 
     with create_transport(settings, "browser") as transport:
@@ -118,6 +121,25 @@ def test_custom_http_transport_fetch_requires_context(settings) -> None:
 
     with pytest.raises(TransportError, match="context manager"):
         transport.fetch("https://arca.live/")
+
+
+def test_transports_module_import_is_lazy_for_playwright(monkeypatch) -> None:
+    sys.modules.pop("chathsr.transports", None)
+    real_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "playwright.sync_api":
+            raise AssertionError("playwright.sync_api should not load during module import")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    module = importlib.import_module("chathsr.transports")
+    assert module.DEFAULT_TRANSPORT == "browser"
+    sys.modules.pop("chathsr.transports", None)
+
+
+class _DummyTimeoutError(Exception):
+    pass
 
 
 class _DummyPage:

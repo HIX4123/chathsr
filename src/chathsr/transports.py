@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol, Self
-
-from playwright.sync_api import Browser, BrowserContext, Page, TimeoutError, sync_playwright
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from chathsr.config import Settings
 from chathsr.custom_transport import CustomHTTPTransport
@@ -12,6 +10,11 @@ from chathsr.errors import (
     StorageStateError,
     UnsupportedTransportError,
 )
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser, BrowserContext, Page
+else:
+    Browser = BrowserContext = Page = Any
 
 
 DEFAULT_TRANSPORT = "browser"
@@ -29,6 +32,19 @@ class FetchTransport(Protocol):
     def __exit__(self, exc_type, exc, tb) -> None: ...
 
 
+def _load_playwright_sync_api():
+    try:
+        from playwright.sync_api import TimeoutError, sync_playwright
+    except ImportError as exc:
+        raise BrowserSessionError(
+            "Browser transport requires Playwright's sync API, but it could not be "
+            "imported in this Python environment. If you only need websocket probe "
+            "commands, they can run without browser transport. If you need browser "
+            "crawl/auth commands, repair the local Playwright/greenlet runtime first."
+        ) from exc
+    return TimeoutError, sync_playwright
+
+
 class BrowserTransport:
     def __init__(
         self,
@@ -41,6 +57,7 @@ class BrowserTransport:
         self.headless = headless
         self.force_persistent = force_persistent
         self._mode = "profile"
+        self._timeout_error, sync_playwright = _load_playwright_sync_api()
         self._playwright_manager = sync_playwright()
         self._playwright = self._playwright_manager.start()
         self._browser: Browser | None = None
@@ -75,7 +92,7 @@ class BrowserTransport:
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(1500)
-        except TimeoutError as exc:
+        except self._timeout_error as exc:
             raise CrawlBlockedError(f"Timed out while loading {url}") from exc
         html = page.content()
         if "Just a moment..." in html or "Enable JavaScript and cookies to continue" in html:
