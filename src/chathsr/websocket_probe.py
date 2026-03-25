@@ -20,6 +20,8 @@ from chathsr.utils import utc_now_iso
 
 POST_ID_RE = re.compile(r"\b\d{6,10}\b")
 HEARTBEAT_RE = re.compile(r"^(?:ping|pong|heartbeat|keepalive|ka|h|\{\s*\})$", re.IGNORECASE)
+POST_PATH_RE = re.compile(r"/b/[^/\s|]+/\d{6,10}(?:\?[^|\s]*)?")
+CHANNEL_EVENT_RE = re.compile(r"^c\|\d+$")
 
 
 @dataclass(slots=True)
@@ -255,6 +257,7 @@ def summarize_probe_file(path: str | Path) -> str:
         f"reason={summary['reason']}",
         "message_types=" + ", ".join(summary["message_types"]) if summary["message_types"] else "message_types=none",
         "post_id_examples=" + ", ".join(summary["post_id_examples"]) if summary["post_id_examples"] else "post_id_examples=none",
+        "path_signal_examples=" + ", ".join(summary["path_signal_examples"]) if summary["path_signal_examples"] else "path_signal_examples=none",
     ]
     return "\n".join(lines)
 
@@ -295,6 +298,13 @@ def summarize_probe_records(records: list[ProbeRecord]) -> dict[str, object]:
     signatures = Counter(_payload_signature(payload) for payload in payloads)
     classification, reason = classify_probe_payloads(payloads)
     post_ids = sorted({match for payload in payloads for match in POST_ID_RE.findall(payload)})[:5]
+    path_signals = sorted(
+        {
+            path
+            for payload in payloads
+            for path in extract_post_signal_paths(payload)
+        }
+    )[:5]
     return {
         "records": len(records),
         "connections": len(connections),
@@ -304,6 +314,7 @@ def summarize_probe_records(records: list[ProbeRecord]) -> dict[str, object]:
         "reason": reason,
         "message_types": [f"{name} x{count}" for name, count in signatures.most_common(5)],
         "post_id_examples": post_ids,
+        "path_signal_examples": path_signals,
     }
 
 
@@ -317,14 +328,18 @@ def classify_probe_payloads(payloads: list[str]) -> tuple[str, str]:
             "At least one payload looks like full post or list content.",
         )
 
-    post_id_like = [payload for payload in payloads if _looks_like_post_id_signal(payload)]
-    if post_id_like:
+    trigger_like = [
+        payload
+        for payload in payloads
+        if _looks_like_post_id_signal(payload) or _looks_like_post_path_signal(payload)
+    ]
+    if trigger_like:
         return (
             "sync-trigger-only",
-            "Payloads include post-id style signals without clear full content.",
+            "Payloads include post path or post-id style signals without clear full content.",
         )
 
-    if all(_looks_like_heartbeat(payload) for payload in payloads):
+    if all(_looks_like_status_chatter(payload) for payload in payloads):
         return (
             "low-value",
             "Captured websocket traffic looks like heartbeat or status chatter only.",
@@ -347,6 +362,11 @@ def _looks_like_heartbeat(payload: str) -> bool:
     return len(stripped) <= 8 and stripped.isalpha()
 
 
+def _looks_like_status_chatter(payload: str) -> bool:
+    stripped = payload.strip()
+    return _looks_like_heartbeat(stripped) or bool(CHANNEL_EVENT_RE.fullmatch(stripped))
+
+
 def _looks_like_post_id_signal(payload: str) -> bool:
     stripped = payload.strip()
     if not stripped:
@@ -356,6 +376,14 @@ def _looks_like_post_id_signal(payload: str) -> bool:
         return False
     non_id = POST_ID_RE.sub("", stripped).strip()
     return len(non_id) <= 20
+
+
+def extract_post_signal_paths(payload: str) -> list[str]:
+    return POST_PATH_RE.findall(payload.strip())
+
+
+def _looks_like_post_path_signal(payload: str) -> bool:
+    return bool(extract_post_signal_paths(payload))
 
 
 def _looks_like_full_content(payload: str) -> bool:
@@ -375,6 +403,10 @@ def _payload_signature(payload: str) -> str:
         return "empty"
     if _looks_like_heartbeat(stripped):
         return "heartbeat"
+    if CHANNEL_EVENT_RE.fullmatch(stripped):
+        return "channel-chatter"
+    if _looks_like_post_path_signal(stripped):
+        return "post-path-signal"
     if _looks_like_post_id_signal(stripped):
         return "post-id-signal"
     if _looks_like_full_content(stripped):
@@ -413,6 +445,7 @@ class _CDPClient:
         self._next_id = 1
         self._record_count = 0
         self._connection_count = 0
+        self._pending_responses: dict[int, dict[str, Any]] = {}
 
     async def call(
         self,
@@ -429,13 +462,29 @@ class _CDPClient:
         if session_id:
             payload["sessionId"] = session_id
         await self.websocket.send(json.dumps(payload))
+        deadline = monotonic() + 15.0
         while True:
-            response = await self._recv_json()
+            if message_id in self._pending_responses:
+                response = self._pending_responses.pop(message_id)
+            else:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise ProbeError(f"Timed out while waiting for CDP response to {method}.")
+                try:
+                    response = await asyncio.wait_for(self._recv_json(), timeout=remaining)
+                except asyncio.TimeoutError as exc:
+                    raise ProbeError(
+                        f"Timed out while waiting for CDP response to {method}."
+                    ) from exc
             if response.get("id") == message_id:
                 if "error" in response:
                     raise ProbeError(f"CDP command {method} failed: {response['error']}")
                 result = response.get("result", {})
                 return result if isinstance(result, dict) else {}
+            other_id = response.get("id")
+            if isinstance(other_id, int):
+                self._pending_responses[other_id] = response
+                continue
             await self._process_unsolicited(response)
 
     async def collect_for(self, duration: int) -> dict[str, int]:

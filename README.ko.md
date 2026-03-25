@@ -1,6 +1,7 @@
 # chathsr
 
 `chathsr`는 ArcaLive 붕괴 스타레일 채널의 `정보` 카테고리 글을 대상으로 동작하는 Python CLI 기반 RAG 프로토타입입니다.
+현재 공식 실행 기준은 Codespace 원격 수집이 아니라 로컬 머신 수집입니다. 브라우저 세션, 쿠키, 크롤링, 인덱싱을 같은 머신에서 유지하는 편이 ArcaLive 환경에서 훨씬 안정적입니다.
 
 ## 요구 사항
 
@@ -35,6 +36,33 @@ CATEGORY_LABEL=정보
 TOP_K=6
 ```
 
+로컬 실행에서는 `DATA_DIR`, `DATABASE_PATH`, 브라우저 상태, 수집 결과를 같은 머신에 두는 것을 기본값으로 봅니다. `PLAYWRIGHT_CDP_URL`는 이미 띄워 둔 remote-debugging Chrome/Edge에 붙고 싶을 때만 설정하면 됩니다.
+
+## 권장 로컬 워크플로
+
+1. `rag auth` 또는 `PLAYWRIGHT_CDP_URL` 기반 remote-debugging 브라우저로 로컬 세션을 준비합니다.
+2. 먼저 1페이지 스모크 테스트부터 실행합니다.
+
+```bash
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1
+```
+
+3. browser transport가 막히면 로컬 fallback으로 전환해 반복 검증합니다.
+
+```bash
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http
+```
+
+4. 크롤링이 실제로 성공한 뒤에만 RAG 단계로 넘어갑니다.
+
+```bash
+rag import-posts ./exports/posts.jsonl
+rag index changed-only
+rag ask "방금 수집된 글 제목 내용을 요약해 줘"
+```
+
+5. websocket probe는 진단용 또는 증분 감지 신호 확인용으로만 사용합니다. 게시글 본문 수집을 대체하지는 않습니다.
+
 ## 명령어
 
 Cloudflare 통과 및 로그인용 persistent 브라우저 프로필을 저장합니다.
@@ -59,7 +87,7 @@ rag import-posts /path/to/posts.jsonl
 
 로컬에서 Playwright를 설치할 수 없는 환경이라면, 브라우저 확장으로 쿠키를 JSON으로 내보낸 뒤 같은 명령으로 가져오면 됩니다.
 
-`정보` 카테고리 전체를 처음부터 수집합니다.
+`정보` 카테고리 전체를 처음부터 수집합니다. 실제 운영 전에는 1페이지 스모크 테스트를 먼저 권장합니다.
 
 ```bash
 rag crawl backfill
@@ -137,7 +165,7 @@ with sync_playwright() as p:
 
 로컬 브라우저 환경에서 Playwright를 직접 쓸 수 없다면, 브라우저 확장으로 쿠키를 JSON으로 내보내서 `rag import-state`에 넣으세요.
 
-나중에 네가 직접 HTTP 기반 수집 코드를 붙일 계획이라면, `src/chathsr/custom_transport.py`의 placeholder를 구현한 뒤 `--transport custom-http`로 crawl/sync/refresh 명령을 실행하면 됩니다.
+나중에 네가 직접 HTTP 기반 수집 코드를 붙일 계획이라면, `src/chathsr/custom_transport.py`의 placeholder를 구현한 뒤 `--transport custom-http`로 crawl/sync/refresh 명령을 실행하면 됩니다. 이 transport는 browser transport가 막히거나 불안정할 때 쓰는 로컬 fallback 경로로 두는 것을 권장합니다.
 
 세션 파일을 다른 머신으로 옮겨도 계속 막힌다면, 세션 자체를 옮기지 말고 로컬 브라우저에 직접 붙는 흐름으로 전환하면 됩니다.
 
@@ -145,9 +173,9 @@ with sync_playwright() as p:
 2. 그 브라우저에서 Cloudflare와 로그인을 직접 완료합니다.
 3. `PLAYWRIGHT_CDP_URL=http://127.0.0.1:9222`를 설정합니다.
 4. 로컬 머신에서 `rag crawl export-jsonl ./exports/posts.jsonl`을 실행합니다.
-5. 생성된 JSONL을 업로드한 뒤 여기서 `rag import-posts ./exports/posts.jsonl`을 실행합니다.
+5. 크롤링 성공 후 같은 로컬 머신에서 `rag import-posts`, `rag index changed-only`, `rag ask`를 이어서 실행합니다. JSONL 이동은 그 이후 선택 사항입니다.
 
-웹소켓이 단순 새글 이벤트만 주는지, 더 풍부한 게시글 데이터를 주는지 확인하고 싶다면 같은 remote-debugging 브라우저를 대상으로 먼저 websocket probe를 돌리면 됩니다.
+현재까지 확인된 websocket payload는 `c|/b/hkstarrail/<post_id>...` 형태의 경로 신호 수준이므로, 기본 해석은 `증분 감지 트리거`입니다. 본문 HTML은 계속 browser 또는 HTTP transport가 가져와야 합니다.
 
 ## 데이터
 
@@ -161,10 +189,10 @@ with sync_playwright() as p:
 
 ## cron 예시
 
-매일 03:00에 갱신하는 예시입니다.
+로컬 머신에서 매일 03:00에 갱신하는 예시입니다.
 
 ```cron
-0 3 * * * cd /workspaces/chathsr && . .venv/bin/activate && rag refresh >> data/refresh.log 2>&1
+0 3 * * * cd /path/to/chathsr && . .venv/bin/activate && rag refresh >> data/refresh.log 2>&1
 ```
 
 ## 테스트
@@ -183,3 +211,4 @@ python -m compileall src
 - `PLAYWRIGHT_CDP_URL`를 설정하면, 크롤러가 자체 브라우저를 띄우는 대신 이미 열려 있는 로컬 Chrome/Edge 세션에 붙습니다.
 - `--transport browser|custom-http`로 수집 transport를 명시적으로 선택할 수 있고, 기본값은 계속 `browser`입니다.
 - `rag probe websocket`은 로컬 브라우저의 CDP websocket 이벤트를 기록하는 진단용 명령이며, 게시글 수집을 직접 수행하지는 않습니다.
+- 현재 ArcaLive 기준 websocket은 새글 경로 신호를 주는 증분 트리거로 보고, 실제 게시글 본문은 별도 transport로 수집하는 것을 기본값으로 둡니다.

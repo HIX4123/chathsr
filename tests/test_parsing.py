@@ -18,6 +18,27 @@ def test_find_category_slug() -> None:
     assert slug == "정보"
 
 
+def test_find_category_slug_accepts_decorated_category_labels() -> None:
+    html = """
+    <html>
+      <body>
+        <div class="board-category">
+          <a href="/b/hkstarrail?category=%EC%A0%95%EB%B3%B4">
+            <span>정보</span>
+            <small>1,234</small>
+          </a>
+        </div>
+      </body>
+    </html>
+    """
+    slug = find_category_slug(
+        html,
+        board_url="https://arca.live/b/hkstarrail",
+        category_label="정보",
+    )
+    assert slug == "정보"
+
+
 def test_parse_board_posts_marks_notice_and_extracts_posts() -> None:
     html = (FIXTURES / "board_page.html").read_text(encoding="utf-8")
     posts = parse_board_posts(html, board_url="https://arca.live/b/hkstarrail")

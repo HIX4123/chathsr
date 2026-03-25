@@ -52,16 +52,27 @@ BLOCK_TAGS = {
 
 def find_category_slug(html: str, *, board_url: str, category_label: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
-    for anchor in soup.select("ul.board-category a[href]"):
+    board_path = urlparse(board_url).path
+    target = clean_inline_whitespace(category_label)
+    target_compact = target.replace(" ", "")
+    for anchor in soup.select(".board-category a[href], a[href]"):
         label = clean_inline_whitespace(anchor.get_text(" ", strip=True))
-        if label != category_label:
-            continue
         href = urljoin(board_url, anchor["href"])
         parsed = urlparse(href)
+        if parsed.path != board_path:
+            continue
         query = parse_qs(parsed.query)
         values = query.get("category")
         if values and values[0]:
-            return values[0]
+            slug = values[0]
+            label_compact = label.replace(" ", "")
+            if (
+                label == target
+                or target_compact == label_compact
+                or target_compact in label_compact
+                or slug == target
+            ):
+                return slug
     raise ParseError(f"Could not find category slug for '{category_label}'.")
 
 

@@ -24,7 +24,7 @@ class _UrllibClient:
 
 
 class CustomHTTPTransport:
-    """Repo-local HTTP transport skeleton that you can extend in-place."""
+    """Repo-local fallback transport for local-machine HTTP crawling."""
 
     def __init__(
         self,
@@ -51,8 +51,9 @@ class CustomHTTPTransport:
         """
         Create the default HTTP client.
 
-        Replace this whole method if you want to use a different client library.
-        The only contract that matters to the crawler is: `fetch(url) -> html`.
+        Replace this whole method if you want to use a different client library
+        during local crawl testing. The only contract that matters to the crawler
+        is: `fetch(url) -> html`.
         """
         cookie_jar = CookieJar()
         opener = build_opener(HTTPCookieProcessor(cookie_jar))
@@ -66,8 +67,8 @@ class CustomHTTPTransport:
         Playwright storage state or the same browser-cookie JSON shape accepted by
         `rag import-state`.
 
-        If you want a different cookie source, override this method and keep the
-        rest of the transport unchanged.
+        If you want a different cookie source for local HTTP crawling, override
+        this method and keep the rest of the transport unchanged.
         """
         cookie_path = self.settings.playwright_storage_state_path
         if not cookie_path.exists():
@@ -89,8 +90,8 @@ class CustomHTTPTransport:
         Build request headers for a single fetch.
 
         These defaults are intentionally conservative. If your own collector needs
-        extra headers, per-URL Referer changes, or other request shaping, this is
-        the place to edit.
+        extra headers, per-URL Referer changes, or other request shaping during
+        local testing, this is the place to edit.
         """
         parsed = urlparse(url)
         referer = self.settings.board_url
@@ -115,7 +116,8 @@ class CustomHTTPTransport:
 
         This is the main method you will most likely customize. The current
         version is a generic HTTP fetcher with cookie support and simple
-        challenge-page detection. It does not try to bypass blocked responses.
+        challenge-page detection. Use it as a local fallback when browser
+        transport fails. It does not try to bypass blocked responses.
         """
         client = self._require_client()
         request = Request(url, headers=self.build_headers(url))

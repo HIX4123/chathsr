@@ -1,6 +1,7 @@
 # chathsr
 
 `chathsr` is a Python CLI RAG prototype for ArcaLive's Honkai Star Rail `정보` posts.
+The project now assumes a local-machine crawl workflow first, because ArcaLive session handling is materially more reliable when the browser, cookies, crawl, and indexing all stay on the same machine.
 
 ## Requirements
 
@@ -35,6 +36,33 @@ CATEGORY_LABEL=정보
 TOP_K=6
 ```
 
+For local execution, keep `DATA_DIR`, `DATABASE_PATH`, browser state, and crawl output on the same machine. `PLAYWRIGHT_CDP_URL` is optional and only needed when you want to attach to an already-open remote-debugging Chrome/Edge window.
+
+## Recommended Local Workflow
+
+1. Prepare the local browser session with either `rag auth` or a remote-debugging browser referenced by `PLAYWRIGHT_CDP_URL`.
+2. Run a one-page smoke test first:
+
+```bash
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1
+```
+
+3. If browser transport is blocked, switch to the repo-local fallback and iterate locally:
+
+```bash
+rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http
+```
+
+4. Only after crawl succeeds, continue into RAG:
+
+```bash
+rag import-posts ./exports/posts.jsonl
+rag index changed-only
+rag ask "방금 수집된 글 제목 내용을 요약해 줘"
+```
+
+5. Treat websocket probing as diagnostics or incremental-trigger discovery only. It does not replace crawling the actual post HTML.
+
 ## Commands
 
 Authenticate and save the persistent browser profile:
@@ -59,7 +87,7 @@ If you are using an imported session state, the crawler will prefer `PLAYWRIGHT_
 
 If Playwright cannot be installed locally, export cookies from a browser extension, then import that JSON with the same command.
 
-Backfill the full `정보` category:
+Backfill the full `정보` category after a smoke test succeeds:
 
 ```bash
 rag crawl backfill
@@ -137,7 +165,7 @@ with sync_playwright() as p:
 
 If your local browser environment cannot run Playwright, export cookies from a browser extension as JSON and import that file with `rag import-state`.
 
-If you want to add your own HTTP-based collector later, implement the placeholder at `src/chathsr/custom_transport.py` and run crawl/sync/refresh commands with `--transport custom-http`.
+If you want to add your own HTTP-based collector later, implement the placeholder at `src/chathsr/custom_transport.py` and run crawl/sync/refresh commands with `--transport custom-http`. This transport is intended as a local-machine fallback once browser transport is confirmed blocked or unreliable.
 
 If moving session state between machines still gets blocked, keep the authenticated browser on your local machine and attach to it over CDP instead of transferring cookies/state.
 
@@ -145,9 +173,9 @@ If moving session state between machines still gets blocked, keep the authentica
 2. Complete Cloudflare/login manually in that browser.
 3. Set `PLAYWRIGHT_CDP_URL=http://127.0.0.1:9222`.
 4. Run `rag crawl export-jsonl ./exports/posts.jsonl` on that local machine.
-5. Upload the JSONL file here and run `rag import-posts ./exports/posts.jsonl`.
+5. Continue locally with `rag import-posts`, `rag index changed-only`, and `rag ask`, or move the JSONL file elsewhere only after crawling has succeeded.
 
-If you need to inspect whether websocket traffic only carries post IDs or exposes richer post data, run the websocket probe against that same remote-debugging browser before changing the collector design.
+Current websocket probe results should be interpreted as incremental triggers only unless you observe full post content in the payloads. Path-style signals such as `c|/b/hkstarrail/<post_id>...` are enough to wake up a crawler, not to replace it.
 
 ## Data
 
@@ -161,10 +189,10 @@ If you need to inspect whether websocket traffic only carries post IDs or expose
 
 ## Cron
 
-Example daily refresh at 03:00:
+Example daily refresh at 03:00 on the local machine:
 
 ```cron
-0 3 * * * cd /workspaces/chathsr && . .venv/bin/activate && rag refresh >> data/refresh.log 2>&1
+0 3 * * * cd /path/to/chathsr && . .venv/bin/activate && rag refresh >> data/refresh.log 2>&1
 ```
 
 ## Testing
@@ -183,3 +211,4 @@ python -m compileall src
 - `PLAYWRIGHT_CDP_URL` lets the crawler attach to an already-open local Chrome/Edge session instead of launching its own browser.
 - `--transport browser|custom-http` selects the crawl transport explicitly, and the default remains `browser`.
 - `rag probe websocket` is a local diagnostic command for CDP websocket event capture; it does not crawl posts by itself.
+- In the current ArcaLive workflow, websocket payloads are treated as incremental triggers, while actual post HTML must still come from browser or HTTP transport.
