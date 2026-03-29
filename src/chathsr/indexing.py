@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from chathsr.chunking import chunk_article
 from chathsr.config import Settings
 from chathsr.db import Database
@@ -15,6 +17,7 @@ def index_posts(
     *,
     changed_only: bool,
     full_reembed: bool,
+    verbose: bool = False,
 ) -> int:
     existing_spaces = db.get_existing_embedding_spaces()
     expected_space = {
@@ -30,8 +33,12 @@ def index_posts(
             "Run `rag index full-reembed` to rebuild the vector store."
         )
     if full_reembed:
+        if verbose:
+            print("[index] clearing existing chunk embeddings", file=sys.stderr, flush=True)
         db.clear_chunks()
     target_posts = db.select_posts_for_indexing(changed_only=changed_only and not full_reembed)
+    if verbose:
+        print(f"[index] selected {len(target_posts)} post(s) for indexing", file=sys.stderr, flush=True)
     indexed_count = 0
     for row in target_posts:
         article = ParsedArticle(
@@ -62,4 +69,10 @@ def index_posts(
             embedding_dim=settings.embedding_dim,
         )
         indexed_count += 1
+        if verbose:
+            print(
+                f"[index] indexed post_id={article.post_id} chunks={len(chunks)}",
+                file=sys.stderr,
+                flush=True,
+            )
     return indexed_count

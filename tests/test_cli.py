@@ -55,6 +55,7 @@ def test_probe_websocket_help_includes_required_options() -> None:
     assert "--cdp-url" in result.stdout
     assert "--duration" in result.stdout
     assert "--output" in result.stdout
+    assert "--verbose" in result.stdout
 
 
 def test_probe_summarize_help_works() -> None:

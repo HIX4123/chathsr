@@ -50,12 +50,14 @@ def command_context(command: str, detail: str = ""):
 
 
 @app.command()
-def auth() -> None:
+def auth(
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
+) -> None:
     """Open a persistent browser profile for Cloudflare/login setup."""
     try:
         with command_context("auth") as (settings, _db):
             crawler = ArcaLiveCrawler(settings)
-            crawler.authenticate()
+            crawler.authenticate(verbose=verbose)
             typer.echo(f"Saved browser profile under {settings.playwright_profile_dir}")
     except ChathsrError as exc:
         raise _fail(exc)
@@ -64,6 +66,7 @@ def auth() -> None:
 @app.command("import-state")
 def import_state(
     path: Path = typer.Argument(..., help="Path to a Playwright storage_state.json file."),
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
 ) -> None:
     """Import a Playwright storage_state.json or browser cookie JSON file."""
     try:
@@ -71,6 +74,7 @@ def import_state(
             destination, detected_format = import_storage_state_file(
                 path,
                 settings.playwright_storage_state_path,
+                verbose=verbose,
             )
             if detected_format == "storage_state":
                 typer.echo(f"Imported Playwright storage state to {destination}")
@@ -86,11 +90,12 @@ def import_state(
 @app.command("import-posts")
 def import_posts(
     path: Path = typer.Argument(..., help="Path to a JSONL export file or directory."),
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
 ) -> None:
     """Import locally exported post JSONL files into SQLite."""
     try:
         with command_context("import-posts", detail=str(path)) as (_settings, db):
-            stats = import_articles_jsonl(path, db)
+            stats = import_articles_jsonl(path, db, verbose=verbose)
             typer.echo(
                 f"Imported posts: files={stats['files']} articles={stats['articles']} "
                 f"new={stats['new_posts']} changed={stats['changed_posts']}"
@@ -164,6 +169,7 @@ def probe_websocket(
     cdp_url: str = typer.Option(..., "--cdp-url", help="HTTP or WS URL for a remote-debugging Chrome/Edge instance."),
     duration: int = typer.Option(60, min=1, help="How many seconds to observe websocket traffic."),
     output: Path = typer.Option(..., "--output", help="JSONL file that will receive websocket probe records."),
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
 ) -> None:
     """Capture websocket-related CDP events from a remote-debugging browser."""
     try:
@@ -173,6 +179,7 @@ def probe_websocket(
                     cdp_url=cdp_url,
                     duration=duration,
                     output_path=output,
+                    verbose=verbose,
                 )
             )
             typer.echo(
@@ -186,11 +193,12 @@ def probe_websocket(
 @probe_app.command("summarize")
 def probe_summarize(
     path: Path = typer.Argument(..., help="Path to a websocket probe JSONL file."),
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
 ) -> None:
     """Summarize a previously captured websocket probe log."""
     try:
         with command_context("probe summarize", detail=str(path)) as (_settings, _db):
-            typer.echo(summarize_probe_file(path))
+            typer.echo(summarize_probe_file(path, verbose=verbose))
     except ChathsrError as exc:
         raise _fail(exc)
 
@@ -224,7 +232,9 @@ def sync(
 
 
 @index_app.command("changed-only")
-def index_changed_only() -> None:
+def index_changed_only(
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
+) -> None:
     """Embed only new or changed posts."""
     try:
         with command_context("index changed-only") as (settings, db):
@@ -235,6 +245,7 @@ def index_changed_only() -> None:
                 gemini,
                 changed_only=True,
                 full_reembed=False,
+                verbose=verbose,
             )
             typer.echo(f"Indexed {count} changed posts. Total chunks: {db.count_chunks()}")
     except ChathsrError as exc:
@@ -242,7 +253,9 @@ def index_changed_only() -> None:
 
 
 @index_app.command("full-reembed")
-def index_full_reembed() -> None:
+def index_full_reembed(
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
+) -> None:
     """Delete and rebuild all embeddings using the current embedding model."""
     try:
         with command_context("index full-reembed") as (settings, db):
@@ -253,6 +266,7 @@ def index_full_reembed() -> None:
                 gemini,
                 changed_only=False,
                 full_reembed=True,
+                verbose=verbose,
             )
             typer.echo(f"Rebuilt embeddings for {count} posts. Total chunks: {db.count_chunks()}")
     except ChathsrError as exc:
@@ -264,6 +278,7 @@ def ask(
     question: str = typer.Argument(..., help="Question to ask the local RAG store."),
     top_k: int | None = typer.Option(None, min=1, help="Number of retrieved chunks to feed into Gemini."),
     cheap: bool = typer.Option(False, help="Use the cheaper fallback generation model."),
+    verbose: bool = typer.Option(False, "--verbose", help="Print detailed progress logs."),
 ) -> None:
     """Answer a question using retrieved info posts plus Gemini generation."""
     try:
@@ -276,6 +291,7 @@ def ask(
                 question=question,
                 top_k=top_k,
                 use_cheap_model=cheap,
+                verbose=verbose,
             )
             typer.echo(answer)
     except ChathsrError as exc:
