@@ -34,12 +34,12 @@ class ArcaLiveCrawler:
         self.settings = settings
         self.transport_factory = transport_factory
 
-    def authenticate(self) -> None:
+    def authenticate(self, *, verbose: bool = False) -> None:
         with BrowserTransport(
             self.settings,
             headless=False,
             force_persistent=True,
-            verbose=True,
+            verbose=verbose,
         ) as transport:
             transport.interactive_auth()
 

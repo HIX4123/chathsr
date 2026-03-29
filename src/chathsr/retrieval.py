@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import sys
 
 from chathsr.config import Settings
 from chathsr.db import Database
@@ -80,8 +81,13 @@ def answer_question(
     question: str,
     top_k: int | None = None,
     use_cheap_model: bool = False,
+    verbose: bool = False,
 ) -> str:
+    if verbose:
+        print(f"[ask] retrieving chunks for question: {question}", file=sys.stderr, flush=True)
     chunks = retrieve_chunks(db, settings, gemini, question=question, top_k=top_k)
+    if verbose:
+        print(f"[ask] retrieved {len(chunks)} chunk(s)", file=sys.stderr, flush=True)
     answer = gemini.generate_answer(
         question=question,
         chunks=chunks,
