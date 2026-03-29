@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from typer.testing import CliRunner
 
 from chathsr.cli import app
@@ -60,18 +62,22 @@ def test_probe_summarize_help_works() -> None:
     result = runner.invoke(app, ["probe", "summarize", "--help"])
     assert result.exit_code == 0
     assert "JSONL" in result.stdout
-    assert "--verbose" in result.stdout
 
 
-def test_top_level_commands_help_include_verbose() -> None:
-    for command in (
-        ["auth", "--help"],
-        ["import-state", "--help"],
-        ["import-posts", "--help"],
-        ["index", "changed-only", "--help"],
-        ["index", "full-reembed", "--help"],
-        ["ask", "--help"],
-    ):
-        result = runner.invoke(app, command)
-        assert result.exit_code == 0
-        assert "--verbose" in result.stdout
+@pytest.mark.parametrize(
+    ("args", "has_verbose"),
+    [
+        (["auth", "--help"], False),
+        (["import-state", "--help"], False),
+        (["import-posts", "--help"], False),
+        (["probe", "websocket", "--help"], False),
+        (["probe", "summarize", "--help"], False),
+        (["index", "changed-only", "--help"], False),
+        (["index", "full-reembed", "--help"], False),
+        (["ask", "--help"], False),
+    ],
+)
+def test_help_verbose_exposure(args: list[str], has_verbose: bool) -> None:
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0
+    assert ("--verbose" in result.stdout) is has_verbose
