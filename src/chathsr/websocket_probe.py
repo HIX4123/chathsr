@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -202,10 +203,14 @@ async def run_websocket_probe(
     cdp_url: str,
     duration: int,
     output_path: str | Path,
+    verbose: bool = False,
 ) -> dict[str, int]:
     resolved_endpoint = _resolve_browser_debugger_ws_url(cdp_url)
     output = Path(output_path).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
+    if verbose:
+        print(f"[probe] connect to CDP websocket: {resolved_endpoint}", file=sys.stderr, flush=True)
+        print(f"[probe] capture duration={duration}s output={output}", file=sys.stderr, flush=True)
     state = ProbeState()
     counts = {"records": 0, "connections": 0}
     async with connect(resolved_endpoint, max_size=None) as websocket:
@@ -242,10 +247,18 @@ async def run_websocket_probe(
                     await client.call("Network.enable", {}, session_id=session_id)
                     await client.call("Page.enable", {}, session_id=session_id)
         counts = await client.collect_for(duration)
+    if verbose:
+        print(
+            f"[probe] capture complete: records={counts['records']} connections={counts['connections']}",
+            file=sys.stderr,
+            flush=True,
+        )
     return counts
 
 
-def summarize_probe_file(path: str | Path) -> str:
+def summarize_probe_file(path: str | Path, *, verbose: bool = False) -> str:
+    if verbose:
+        print(f"[probe] summarize log: {Path(path).resolve()}", file=sys.stderr, flush=True)
     records = load_probe_records(path)
     summary = summarize_probe_records(records)
     lines = [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -22,12 +23,21 @@ def export_articles_jsonl(path: str | Path, articles: Iterable[ParsedArticle]) -
     return count
 
 
-def import_articles_jsonl(path: str | Path, db: Database) -> dict[str, int]:
+def import_articles_jsonl(
+    path: str | Path,
+    db: Database,
+    *,
+    verbose: bool = False,
+) -> dict[str, int]:
     source_path = Path(path).resolve()
     files = _resolve_import_files(source_path)
     stats = {"files": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
+    if verbose:
+        print(f"[import] found {len(files)} jsonl file(s) under {source_path}", file=sys.stderr, flush=True)
     for file_path in files:
         stats["files"] += 1
+        if verbose:
+            print(f"[import] processing {file_path}", file=sys.stderr, flush=True)
         for article in _load_articles_jsonl(file_path):
             is_new, changed = db.upsert_article(article)
             stats["articles"] += 1
@@ -35,6 +45,12 @@ def import_articles_jsonl(path: str | Path, db: Database) -> dict[str, int]:
                 stats["new_posts"] += 1
             if changed:
                 stats["changed_posts"] += 1
+        if verbose:
+            print(
+                f"[import] done {file_path}: total_articles={stats['articles']}",
+                file=sys.stderr,
+                flush=True,
+            )
     return stats
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -49,9 +50,16 @@ def validate_storage_state_payload(payload: Any) -> dict[str, Any]:
     return payload
 
 
-def import_storage_state_file(source: str | Path, destination: str | Path) -> tuple[Path, str]:
+def import_storage_state_file(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    verbose: bool = False,
+) -> tuple[Path, str]:
     source_path = Path(source).resolve()
     destination_path = Path(destination).resolve()
+    if verbose:
+        print(f"[session] load session payload: {source_path}", file=sys.stderr, flush=True)
     payload = load_json_file(source_path)
     storage_state, detected_format = detect_and_normalize_session_payload(payload)
     destination_path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,6 +67,12 @@ def import_storage_state_file(source: str | Path, destination: str | Path) -> tu
         json.dumps(storage_state, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    if verbose:
+        print(
+            f"[session] wrote normalized storage_state to {destination_path} (format={detected_format})",
+            file=sys.stderr,
+            flush=True,
+        )
     return destination_path, detected_format
 
 

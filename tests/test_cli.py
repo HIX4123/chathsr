@@ -53,9 +53,25 @@ def test_probe_websocket_help_includes_required_options() -> None:
     assert "--cdp-url" in result.stdout
     assert "--duration" in result.stdout
     assert "--output" in result.stdout
+    assert "--verbose" in result.stdout
 
 
 def test_probe_summarize_help_works() -> None:
     result = runner.invoke(app, ["probe", "summarize", "--help"])
     assert result.exit_code == 0
     assert "JSONL" in result.stdout
+    assert "--verbose" in result.stdout
+
+
+def test_top_level_commands_help_include_verbose() -> None:
+    for command in (
+        ["auth", "--help"],
+        ["import-state", "--help"],
+        ["import-posts", "--help"],
+        ["index", "changed-only", "--help"],
+        ["index", "full-reembed", "--help"],
+        ["ask", "--help"],
+    ):
+        result = runner.invoke(app, command)
+        assert result.exit_code == 0
+        assert "--verbose" in result.stdout
