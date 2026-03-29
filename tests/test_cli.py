@@ -50,6 +50,7 @@ def test_probe_help_lists_subcommands() -> None:
 def test_probe_websocket_help_includes_required_options() -> None:
     result = runner.invoke(app, ["probe", "websocket", "--help"])
     assert result.exit_code == 0
+    assert "--verbose" in result.stdout
     assert "--cdp-url" in result.stdout
     assert "--duration" in result.stdout
     assert "--output" in result.stdout
@@ -58,4 +59,41 @@ def test_probe_websocket_help_includes_required_options() -> None:
 def test_probe_summarize_help_works() -> None:
     result = runner.invoke(app, ["probe", "summarize", "--help"])
     assert result.exit_code == 0
+    assert "--verbose" in result.stdout
     assert "JSONL" in result.stdout
+
+
+def test_auth_help_includes_verbose_option() -> None:
+    result = runner.invoke(app, ["auth", "--help"])
+    assert result.exit_code == 0
+    assert "--verbose" in result.stdout
+
+
+def test_import_state_help_includes_verbose_option() -> None:
+    result = runner.invoke(app, ["import-state", "--help"])
+    assert result.exit_code == 0
+    assert "--verbose" in result.stdout
+
+
+def test_import_posts_help_includes_verbose_option() -> None:
+    result = runner.invoke(app, ["import-posts", "--help"])
+    assert result.exit_code == 0
+    assert "--verbose" in result.stdout
+
+
+def test_index_changed_only_help_includes_verbose_option() -> None:
+    result = runner.invoke(app, ["index", "changed-only", "--help"])
+    assert result.exit_code == 0
+    assert "--verbose" in result.stdout
+
+
+def test_index_full_reembed_help_includes_verbose_option() -> None:
+    result = runner.invoke(app, ["index", "full-reembed", "--help"])
+    assert result.exit_code == 0
+    assert "--verbose" in result.stdout
+
+
+def test_ask_help_includes_verbose_option() -> None:
+    result = runner.invoke(app, ["ask", "--help"])
+    assert result.exit_code == 0
+    assert "--verbose" in result.stdout
