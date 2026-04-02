@@ -1,0 +1,50 @@
+[
+  {
+    "profile": "default",
+    "url": "https://arca.live/b/hkstarrail",
+    "final_url": "https://arca.live/b/hkstarrail",
+    "status_code": 403,
+    "blocked": true,
+    "block_marker_found": true,
+    "server": "cloudflare",
+    "cf_ray": "9e47e6cffe0b0bf6-ICN",
+    "content_type": "text/html; charset=UTF-8",
+    "user_agent": "Mozilla/5.0 (Android 8.0.0; Mobile; rv:61.0) Gecko/61.0 Firefox/61.0",
+    "response_bytes": 4870,
+    "error_kind": "challenge_page",
+    "error_detail": "The HTTP crawler received a blocked or challenge page (profile=default, status=403, server=cloudflare, cf-ray=9e47e6cffe0b0bf6-ICN, challenge_marker=yes).",
+    "body_snippet": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><m"
+  },
+  {
+    "profile": "cloudscraper_windows",
+    "url": "https://arca.live/b/hkstarrail",
+    "final_url": "https://arca.live/b/hkstarrail",
+    "status_code": 403,
+    "blocked": true,
+    "block_marker_found": true,
+    "server": "cloudflare",
+    "cf_ray": "9e47e6d0cdeb3d84-ICN",
+    "content_type": "text/html; charset=UTF-8",
+    "user_agent": "Mozilla/5.0 (Windows NT 6.3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36",
+    "response_bytes": 4998,
+    "error_kind": "challenge_page",
+    "error_detail": "The HTTP crawler received a blocked or challenge page (profile=cloudscraper_windows, status=403, server=cloudflare, cf-ray=9e47e6d0cdeb3d84-ICN, challenge_marker=yes).",
+    "body_snippet": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><m"
+  },
+  {
+    "profile": "modern_desktop_ua",
+    "url": "https://arca.live/b/hkstarrail",
+    "final_url": "https://arca.live/b/hkstarrail",
+    "status_code": 403,
+    "blocked": true,
+    "block_marker_found": true,
+    "server": "cloudflare",
+    "cf_ray": "9e47e6d15eaac6fe-ICN",
+    "content_type": "text/html; charset=UTF-8",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+    "response_bytes": 5020,
+    "error_kind": "challenge_page",
+    "error_detail": "The HTTP crawler received a blocked or challenge page (profile=modern_desktop_ua, status=403, server=cloudflare, cf-ray=9e47e6d15eaac6fe-ICN, challenge_marker=yes).",
+    "body_snippet": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><m"
+  }
+]

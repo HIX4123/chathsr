@@ -57,10 +57,20 @@ CREATE TABLE IF NOT EXISTS runs (
     finished_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS processed_sync_batches (
+    batch_id TEXT PRIMARY KEY,
+    source_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    article_count INTEGER NOT NULL,
+    processed_at TEXT NOT NULL,
+    error_detail TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
 CREATE INDEX IF NOT EXISTS idx_posts_content_hash ON posts(content_hash);
 CREATE INDEX IF NOT EXISTS idx_chunks_post_id ON chunks(post_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding_space ON chunks(embedding_model, embedding_space_version);
+CREATE INDEX IF NOT EXISTS idx_processed_sync_batches_status ON processed_sync_batches(status);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     chunk_id UNINDEXED,
@@ -126,6 +136,83 @@ class Database:
             (key,),
         ).fetchone()
         return row["value"] if row else None
+
+    def get_sync_batch_status(self, batch_id: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT status FROM processed_sync_batches WHERE batch_id = ?",
+            (batch_id,),
+        ).fetchone()
+        return row["status"] if row else None
+
+    def get_latest_post_summary(self) -> sqlite3.Row | None:
+        return self.conn.execute(
+            """
+            SELECT post_id, crawled_at
+            FROM posts
+            ORDER BY post_id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    def get_latest_successful_sync_batch_id(self) -> str | None:
+        row = self.conn.execute(
+            """
+            SELECT batch_id
+            FROM processed_sync_batches
+            WHERE status = 'succeeded'
+            ORDER BY processed_at DESC, batch_id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        return row["batch_id"] if row else None
+
+    def list_recent_posts(self, *, limit: int) -> list[sqlite3.Row]:
+        if limit <= 0:
+            return []
+        return list(
+            self.conn.execute(
+                """
+                SELECT post_id, content_hash
+                FROM posts
+                ORDER BY post_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        )
+
+    def record_sync_batch(
+        self,
+        *,
+        batch_id: str,
+        source_name: str,
+        status: str,
+        article_count: int,
+        error_detail: str = "",
+    ) -> None:
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO processed_sync_batches(
+                    batch_id, source_name, status, article_count, processed_at, error_detail
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(batch_id) DO UPDATE SET
+                    source_name = excluded.source_name,
+                    status = excluded.status,
+                    article_count = excluded.article_count,
+                    processed_at = excluded.processed_at,
+                    error_detail = excluded.error_detail
+                """,
+                (
+                    batch_id,
+                    source_name,
+                    status,
+                    article_count,
+                    utc_now_iso(),
+                    error_detail,
+                ),
+            )
 
     def get_post(self, post_id: int) -> sqlite3.Row | None:
         return self.conn.execute(

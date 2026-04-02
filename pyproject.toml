@@ -11,10 +11,8 @@ requires-python = ">=3.12"
 dependencies = [
   "beautifulsoup4>=4.12,<5",
   "google-genai>=1.68,<2",
-  "playwright>=1.58,<2",
   "python-dotenv>=1.1,<2",
   "typer>=0.24,<1",
-  "websockets>=16,<17",
   "cloudscraper"
 ]
 

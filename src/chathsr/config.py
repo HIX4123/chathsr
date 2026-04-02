@@ -14,7 +14,6 @@ DEFAULT_FALLBACK_GENERATION_MODEL = "gemini-3.1-flash-lite-preview"
 DEFAULT_EMBEDDING_MODEL = "gemini-embedding-2-preview"
 DEFAULT_EMBEDDING_DIM = 1536
 DEFAULT_TOP_K = 6
-DEFAULT_STORAGE_STATE_FILENAME = "storage_state.json"
 
 
 @dataclass(slots=True)
@@ -22,10 +21,13 @@ class Settings:
     project_root: Path
     data_dir: Path
     database_path: Path
-    playwright_profile_dir: Path
-    playwright_storage_state_path: Path
-    playwright_storage_state_path_configured: bool
-    playwright_cdp_url: str | None
+    sync_inbox_dir: Path
+    sync_archive_dir: Path
+    sync_client_outbox_dir: Path
+    sync_remote_host: str | None
+    sync_remote_user: str | None
+    sync_remote_path: str | None
+    sync_ssh_port: int
     gemini_api_key: str | None
     generation_model: str
     cheap_generation_model: str
@@ -45,20 +47,10 @@ class Settings:
 
     def ensure_directories(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.playwright_profile_dir.mkdir(parents=True, exist_ok=True)
-        self.playwright_storage_state_path.parent.mkdir(parents=True, exist_ok=True)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def should_use_storage_state(self) -> bool:
-        return (
-            self.playwright_storage_state_path_configured
-            or self.playwright_storage_state_path.exists()
-        )
-
-    @property
-    def should_use_cdp(self) -> bool:
-        return bool(self.playwright_cdp_url)
+        self.sync_inbox_dir.mkdir(parents=True, exist_ok=True)
+        self.sync_archive_dir.mkdir(parents=True, exist_ok=True)
+        self.sync_client_outbox_dir.mkdir(parents=True, exist_ok=True)
 
 
 def load_settings(project_root: str | Path | None = None) -> Settings:
@@ -68,21 +60,23 @@ def load_settings(project_root: str | Path | None = None) -> Settings:
     database_path = Path(
         os.getenv("DATABASE_PATH", data_dir / "chathsr.sqlite3")
     ).resolve()
-    profile_dir = Path(
-        os.getenv("PLAYWRIGHT_PROFILE_DIR", data_dir / "playwright-profile")
-    ).resolve()
-    storage_state_env = os.getenv("PLAYWRIGHT_STORAGE_STATE_PATH")
-    storage_state_path = Path(
-        storage_state_env or data_dir / DEFAULT_STORAGE_STATE_FILENAME
-    ).resolve()
     settings = Settings(
         project_root=root,
         data_dir=data_dir,
         database_path=database_path,
-        playwright_profile_dir=profile_dir,
-        playwright_storage_state_path=storage_state_path,
-        playwright_storage_state_path_configured=storage_state_env is not None,
-        playwright_cdp_url=os.getenv("PLAYWRIGHT_CDP_URL"),
+        sync_inbox_dir=Path(
+            os.getenv("SYNC_INBOX_DIR", data_dir / "inbox")
+        ).resolve(),
+        sync_archive_dir=Path(
+            os.getenv("SYNC_ARCHIVE_DIR", data_dir / "sync-archive")
+        ).resolve(),
+        sync_client_outbox_dir=Path(
+            os.getenv("SYNC_CLIENT_OUTBOX_DIR", data_dir / "sync-outbox")
+        ).resolve(),
+        sync_remote_host=os.getenv("SYNC_REMOTE_HOST"),
+        sync_remote_user=os.getenv("SYNC_REMOTE_USER"),
+        sync_remote_path=os.getenv("SYNC_REMOTE_PATH"),
+        sync_ssh_port=int(os.getenv("SYNC_SSH_PORT", "22")),
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
         generation_model=os.getenv("GENERATION_MODEL", DEFAULT_GENERATION_MODEL),
         cheap_generation_model=os.getenv(

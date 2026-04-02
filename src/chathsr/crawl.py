@@ -12,12 +12,7 @@ from chathsr.parsing import (
     parse_article,
     parse_board_posts,
 )
-from chathsr.transports import (
-    DEFAULT_TRANSPORT,
-    BrowserTransport,
-    FetchTransport,
-    create_transport,
-)
+from chathsr.transports import FetchTransport, create_transport
 from chathsr.utils import utc_now_iso
 
 
@@ -34,31 +29,15 @@ class ArcaLiveCrawler:
         self.settings = settings
         self.transport_factory = transport_factory
 
-    def authenticate(self, *, verbose: bool = False) -> None:
-        with BrowserTransport(
-            self.settings,
-            headless=False,
-            force_persistent=True,
-            verbose=verbose,
-        ) as transport:
-            transport.interactive_auth()
-
     def crawl_backfill(
         self,
         db: Database,
         *,
         max_pages: int | None = None,
-        headless: bool = True,
-        transport_name: str = DEFAULT_TRANSPORT,
         verbose: bool = False,
     ) -> dict[str, int]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
-        with self.transport_factory(
-            self.settings,
-            transport_name,
-            headless=headless,
-            verbose=verbose,
-        ) as transport:
+        with self.transport_factory(self.settings, verbose=verbose) as transport:
             self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
             self._emit_verbose(verbose, f"category slug resolved: {category_slug}")
@@ -84,17 +63,10 @@ class ArcaLiveCrawler:
         self,
         *,
         max_pages: int | None = None,
-        headless: bool = True,
-        transport_name: str = DEFAULT_TRANSPORT,
         verbose: bool = False,
     ) -> tuple[list[ParsedArticle], dict[str, int]]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
-        with self.transport_factory(
-            self.settings,
-            transport_name,
-            headless=headless,
-            verbose=verbose,
-        ) as transport:
+        with self.transport_factory(self.settings, verbose=verbose) as transport:
             self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
             self._emit_verbose(verbose, f"category slug resolved: {category_slug}")
@@ -108,23 +80,41 @@ class ArcaLiveCrawler:
         stats["articles"] = len(articles)
         return articles, stats
 
+    def crawl_incremental_articles(
+        self,
+        *,
+        since_post_id: int | None,
+        recheck_posts: int = 0,
+        max_pages: int | None = None,
+        verbose: bool = False,
+    ) -> tuple[list[ParsedArticle], dict[str, int]]:
+        stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
+        with self.transport_factory(self.settings, verbose=verbose) as transport:
+            self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
+            category_slug = self._resolve_category_slug(transport)
+            self._emit_verbose(verbose, f"category slug resolved: {category_slug}")
+            articles = self._collect_incremental_articles(
+                transport,
+                category_slug=category_slug,
+                since_post_id=since_post_id,
+                recheck_posts=recheck_posts,
+                max_pages=max_pages,
+                stats=stats,
+                verbose=verbose,
+            )
+        stats["articles"] = len(articles)
+        return articles, stats
+
     def sync(
         self,
         db: Database,
         *,
         max_pages: int | None = None,
-        headless: bool = True,
         unchanged_limit: int = 20,
-        transport_name: str = DEFAULT_TRANSPORT,
         verbose: bool = False,
     ) -> dict[str, int]:
         stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
-        with self.transport_factory(
-            self.settings,
-            transport_name,
-            headless=headless,
-            verbose=verbose,
-        ) as transport:
+        with self.transport_factory(self.settings, verbose=verbose) as transport:
             self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
             self._emit_verbose(verbose, f"category slug resolved: {category_slug}")
@@ -226,6 +216,62 @@ class ArcaLiveCrawler:
                 article = parse_article(article_html, url=ref.url)
                 articles.append(article)
                 seen_ids.add(ref.post_id)
+            page_number += 1
+        return articles
+
+    def _collect_incremental_articles(
+        self,
+        transport: FetchTransport,
+        *,
+        category_slug: str,
+        since_post_id: int | None,
+        recheck_posts: int,
+        max_pages: int | None,
+        stats: dict[str, int],
+        verbose: bool,
+    ) -> list[ParsedArticle]:
+        seen_ids: set[int] = set()
+        page_number = 1
+        articles: list[ParsedArticle] = []
+        rechecked_refs = 0
+        while True:
+            if max_pages is not None and page_number > max_pages:
+                break
+            board_html = self._fetch_html(
+                transport,
+                build_category_page_url(
+                    self.settings.board_url,
+                    category_slug=category_slug,
+                    page=page_number,
+                ),
+            )
+            refs = [
+                ref
+                for ref in parse_board_posts(board_html, board_url=self.settings.board_url)
+                if not ref.is_notice and ref.post_id not in seen_ids
+            ]
+            if not refs:
+                self._emit_verbose(verbose, f"page {page_number}: no more post refs; stop incremental export")
+                break
+            self._emit_verbose(verbose, f"page {page_number}: found {len(refs)} post refs")
+            stats["pages"] += 1
+            for ref in refs:
+                seen_ids.add(ref.post_id)
+                within_recheck_window = rechecked_refs < recheck_posts
+                if within_recheck_window:
+                    rechecked_refs += 1
+                is_new_candidate = since_post_id is None or ref.post_id > since_post_id
+                if not is_new_candidate and not within_recheck_window:
+                    self._emit_verbose(
+                        verbose,
+                        f"stop incremental export at post_id={ref.post_id} "
+                        f"(since_post_id={since_post_id}, recheck_posts={recheck_posts})",
+                    )
+                    return articles
+                self._emit_verbose(verbose, f"fetch article {ref.post_id}: {ref.url}")
+                article_html = self._fetch_html(transport, ref.url)
+                article = parse_article(article_html, url=ref.url)
+                articles.append(article)
             page_number += 1
         return articles
 

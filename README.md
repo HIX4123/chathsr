@@ -1,32 +1,39 @@
 # chathsr
 
 `chathsr` is a Python CLI RAG prototype for ArcaLive's Honkai Star Rail `정보` posts.
-The project now assumes a local-machine crawl workflow first, because ArcaLive session handling is materially more reliable when the browser, cookies, crawl, and indexing all stay on the same machine.
+The crawler now uses a single `cloudscraper`-backed HTTP path. Browser/session/CDP workflows are no longer part of the supported runtime.
 
 ## Requirements
 
-- Python 3.12
+- Linux x86_64 with `curl`, `tar`, and `python3`
 - A Gemini API key
-- A browser session that can pass ArcaLive's Cloudflare/login flow
+
+`cloudscraper` behavior can still differ by OS and network environment. If the same crawl succeeds on Windows and fails on Linux, treat that as an environment-level difference in the HTTP path rather than a browser/session issue.
 
 ## Setup
 
 ```bash
-python -m venv .venv
+./scripts/setup-python.sh
 source .venv/bin/activate
-pip install -e ".[dev]"
-python -m playwright install chromium
 ```
+
+`./scripts/setup-python.sh` installs a project-local standalone Python into `.python/`, recreates `.venv/`, and installs `.[dev]` in editable mode. The default is Python `3.12.12`; use `./scripts/setup-python.sh 3.12.10` if you need the older fallback.
+
+This setup intentionally does not target `3.12.13`, because the Linux path there would fall back to a source-build workflow instead of a project-local prebuilt install.
 
 Create a `.env` file at the project root:
 
 ```env
 GEMINI_API_KEY=your-key
 DATA_DIR=./data
-PLAYWRIGHT_PROFILE_DIR=./data/playwright-profile
-PLAYWRIGHT_STORAGE_STATE_PATH=./data/storage_state.json
-PLAYWRIGHT_CDP_URL=
 DATABASE_PATH=./data/chathsr.sqlite3
+SYNC_INBOX_DIR=./data/inbox
+SYNC_ARCHIVE_DIR=./data/sync-archive
+SYNC_CLIENT_OUTBOX_DIR=./data/sync-outbox
+SYNC_REMOTE_HOST=server.example.com
+SYNC_REMOTE_USER=ubuntu
+SYNC_REMOTE_PATH=/srv/chathsr/inbox
+SYNC_SSH_PORT=22
 GENERATION_MODEL=gemini-3-flash-preview
 CHEAP_GENERATION_MODEL=gemini-3.1-flash-lite-preview
 EMBEDDING_MODEL=gemini-embedding-2-preview
@@ -36,26 +43,16 @@ CATEGORY_LABEL=정보
 TOP_K=6
 ```
 
-For local execution, keep `DATA_DIR`, `DATABASE_PATH`, browser state, and crawl output on the same machine. `PLAYWRIGHT_CDP_URL` is optional and only needed when you want to attach to an already-open remote-debugging Chrome/Edge window.
+## Recommended Workflow
 
-## Recommended Local Workflow
-
-1. Prepare the local browser session with either `rag auth` or a remote-debugging browser referenced by `PLAYWRIGHT_CDP_URL`.
-2. Run a one-page smoke test first:
+1. Run a one-page smoke test first.
 
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1
 rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --verbose
 ```
 
-3. If browser transport is blocked, switch to the repo-local fallback and iterate locally:
-
-```bash
-rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http
-rag crawl export-jsonl ./exports/posts.jsonl --max-pages 1 --transport custom-http --verbose
-```
-
-4. Only after crawl succeeds, continue into RAG:
+2. Only after crawl succeeds, continue into RAG.
 
 ```bash
 rag import-posts ./exports/posts.jsonl
@@ -63,21 +60,25 @@ rag index changed-only
 rag ask "방금 수집된 글 제목 내용을 요약해 줘"
 ```
 
-5. Treat websocket probing as diagnostics or incremental-trigger discovery only. It does not replace crawling the actual post HTML.
+3. If Linux keeps getting blocked while Windows succeeds, keep investigating within the same HTTP crawler path.
+
+```bash
+rag probe http --verbose
+rag probe http --proxy http://user:pass@proxy.example:8080 --verbose
+rag probe http --cookie-header "cf_clearance=..." --profile default
+rag probe http --output ./data/http-probe.json
+```
+
+4. If Windows can crawl reliably and this server cannot, export from Windows and sync the batch here.
+
+```bash
+rag crawl export-sync-batch --auto-since-server
+rag sync push-latest
+# on the server
+rag sync inbox
+```
 
 ## Commands
-
-Authenticate and save the persistent browser profile:
-
-```bash
-rag auth
-```
-
-Import a Playwright `storage_state.json` or browser-extension cookie JSON exported on another machine:
-
-```bash
-rag import-state /path/to/storage_state.json
-```
 
 Import locally exported post JSONL files:
 
@@ -85,31 +86,57 @@ Import locally exported post JSONL files:
 rag import-posts /path/to/posts.jsonl
 ```
 
-If you are using an imported session state, the crawler will prefer `PLAYWRIGHT_STORAGE_STATE_PATH` over the persistent profile.
-
-If Playwright cannot be installed locally, export cookies from a browser extension, then import that JSON with the same command.
-
 Backfill the full `정보` category after a smoke test succeeds:
 
 ```bash
 rag crawl backfill
-rag crawl backfill --transport custom-http
+rag crawl backfill --max-pages 1 --verbose
 ```
 
 Export crawled posts as JSONL instead of writing them straight into SQLite:
 
 ```bash
 rag crawl export-jsonl ./exports/posts.jsonl
-rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http
-rag crawl export-jsonl ./exports/posts.jsonl --transport custom-http --verbose
+rag crawl export-jsonl ./exports/posts.jsonl --verbose
+```
+
+Export crawled posts as a sync batch pair for later upload:
+
+```bash
+rag crawl export-sync-batch
+rag crawl export-sync-batch --since-post-id 12345678
+rag crawl export-sync-batch --auto-since-server
+rag crawl export-sync-batch --auto-since-server --recheck-posts 50
+rag crawl export-sync-batch ./exports --max-pages 1 --verbose
 ```
 
 Sync newly added or edited posts:
 
 ```bash
 rag sync
-rag sync --transport custom-http
-rag sync --transport custom-http --verbose
+rag sync --verbose
+```
+
+Upload the newest local sync batch to the configured remote inbox:
+
+```bash
+rag sync push-latest
+rag sync push-latest --batch-id 20260331T120102Z-a1b2c3 --verbose
+```
+
+Import and index uploaded sync batches on the server:
+
+```bash
+rag sync inbox
+rag sync inbox --verbose
+```
+
+Print the server-side sync cursor used by incremental client exports:
+
+```bash
+rag sync status
+rag sync status --json
+rag sync status --json --recent-posts 20
 ```
 
 Embed only new or changed posts:
@@ -134,61 +161,28 @@ Run sync plus incremental indexing:
 
 ```bash
 rag refresh
-rag refresh --transport custom-http
-rag refresh --transport custom-http --verbose
+rag refresh --verbose
 ```
 
-Probe websocket traffic from a local remote-debugging browser and summarize the result:
+Probe the HTTP crawler with the built-in request profile matrix:
 
 ```bash
-rag probe websocket --cdp-url http://127.0.0.1:9222 --duration 60 --output ./data/ws-probe.jsonl
-rag probe summarize ./data/ws-probe.jsonl
+rag probe http
+rag probe http --url https://arca.live/b/hkstarrail --verbose
+rag probe http --proxy http://user:pass@proxy.example:8080 --profile default
+rag probe http --cookie-header "cf_clearance=..." --profile default
+rag probe http --cookie-json ./cookies.json --output ./data/http-probe.json
+rag probe http --output ./data/http-probe.json
 ```
-
-Use `--headful` if you need a visible browser during login/debugging:
-
-```bash
-rag auth
-rag sync --headful
-```
-
-If you need to export a session on a local machine with a GUI, save the Playwright storage state after manual login:
-
-```python
-from pathlib import Path
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    context = browser.new_context()
-    page = context.new_page()
-    page.goto("https://arca.live/b/hkstarrail")
-    input("Complete Cloudflare/login, then press Enter...")
-    context.storage_state(path=str(Path("storage_state.json")))
-    browser.close()
-```
-
-If your local browser environment cannot run Playwright, export cookies from a browser extension as JSON and import that file with `rag import-state`.
-
-If you want to add your own HTTP-based collector later, implement the placeholder at `src/chathsr/custom_transport.py` and run crawl/sync/refresh commands with `--transport custom-http`. This transport is intended as a local-machine fallback once browser transport is confirmed blocked or unreliable.
-
-If moving session state between machines still gets blocked, keep the authenticated browser on your local machine and attach to it over CDP instead of transferring cookies/state.
-
-1. Start Chrome or Edge with a separate remote-debugging profile.
-2. Complete Cloudflare/login manually in that browser.
-3. Set `PLAYWRIGHT_CDP_URL=http://127.0.0.1:9222`.
-4. Run `rag crawl export-jsonl ./exports/posts.jsonl` on that local machine.
-5. Continue locally with `rag import-posts`, `rag index changed-only`, and `rag ask`, or move the JSONL file elsewhere only after crawling has succeeded.
-
-Current websocket probe results should be interpreted as incremental triggers only unless you observe full post content in the payloads. Path-style signals such as `c|/b/hkstarrail/<post_id>...` are enough to wake up a crawler, not to replace it.
 
 ## Data
 
 - SQLite database: `data/chathsr.sqlite3`
-- Playwright profile: `data/playwright-profile/`
-- Imported session state: `data/storage_state.json`
+- Server sync inbox: `data/inbox`
+- Processed/failed sync archives: `data/sync-archive`
+- Local sync batch outbox: `data/sync-outbox`
+- Optional HTTP probe logs: any path you pass to `rag probe http --output`
 - Local JSONL exports: any path you pass to `rag crawl export-jsonl`
-- Websocket probe logs: any path you pass to `rag probe websocket --output`
 - Only post body text is indexed in the MVP.
 - Images are preserved as URLs in metadata, not OCR'd.
 
@@ -212,9 +206,12 @@ python -m compileall src
 - The default generation model is `gemini-3-flash-preview`.
 - The fallback cheaper model is `gemini-3.1-flash-lite-preview`.
 - The default embedding model is `gemini-embedding-2-preview`.
-- `PLAYWRIGHT_STORAGE_STATE_PATH` can point to an imported `storage_state.json` and override the persistent profile.
-- `PLAYWRIGHT_CDP_URL` lets the crawler attach to an already-open local Chrome/Edge session instead of launching its own browser.
-- `--transport browser|custom-http` selects the crawl transport explicitly, and the default remains `browser`.
-- `--verbose` prints crawler phases and requested URLs to stderr during crawl/sync/refresh commands.
-- `rag probe websocket` is a local diagnostic command for CDP websocket event capture; it does not crawl posts by itself.
-- In the current ArcaLive workflow, websocket payloads are treated as incremental triggers, while actual post HTML must still come from browser or HTTP transport.
+- Most commands accept `--verbose` and print detailed progress logs to stderr.
+- Crawl, sync, and refresh commands additionally print requested URLs, and `refresh --verbose` includes indexing logs too.
+- The supported crawl path is the HTTP crawler only.
+- `rag probe http` runs a cloudscraper experiment matrix without touching crawl state.
+- Probe-only inputs can compare direct egress, proxy egress, and optional cookie injection through `--proxy`, `--cookie-header`, `--cookie-json`, and `--profile`.
+- `rag sync push-latest` currently shells out to local `ssh` and `scp`, so the client machine must have OpenSSH available on `PATH`.
+- `rag crawl export-sync-batch --auto-since-server` now exports new posts plus a recent recheck window to detect edited posts.
+- The default recheck window is `20` newest posts when `--auto-since-server` is used, or `0` otherwise.
+- Very old edits outside the recheck window can still be missed; use a larger `--recheck-posts` value or a periodic broader sync when needed.

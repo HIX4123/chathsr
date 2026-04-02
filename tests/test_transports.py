@@ -1,233 +1,301 @@
 from __future__ import annotations
 
-import builtins
-import importlib
-import sys
-from pathlib import Path
-from types import SimpleNamespace
+import json
 
 import pytest
+from requests.cookies import RequestsCookieJar
+from requests.exceptions import HTTPError
 
-from chathsr.custom_transport import CustomHTTPTransport
-from chathsr.errors import TransportError, UnsupportedTransportError
-from chathsr.transports import BrowserTransport, create_transport
-
-
-def test_browser_transport_uses_cdp_when_configured(settings, monkeypatch) -> None:
-    settings.playwright_cdp_url = "http://127.0.0.1:9222"
-    calls: list[tuple] = []
-    chromium = _DummyChromium(calls)
-
-    monkeypatch.setattr(
-        "chathsr.transports._load_playwright_sync_api",
-        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
-    )
-
-    with BrowserTransport(settings, headless=True) as transport:
-        assert transport is not None
-
-    assert calls[0] == ("connect_over_cdp", "http://127.0.0.1:9222")
-    assert calls[1] == ("new_page",)
+from chathsr.errors import CrawlBlockedError, TransportError
+from chathsr.http_transport import (
+    HTTPProbeResult,
+    HTTPRequestConfig,
+    HTTPTransport,
+    load_probe_cookie_jar,
+    run_http_probe_matrix,
+)
+from chathsr.transports import create_transport
 
 
-def test_browser_transport_uses_storage_state_when_available(settings, monkeypatch) -> None:
-    settings.playwright_storage_state_path.write_text(
-        '{"cookies": [], "origins": []}',
-        encoding="utf-8",
-    )
-    calls: list[tuple] = []
-    chromium = _DummyChromium(calls)
-
-    monkeypatch.setattr(
-        "chathsr.transports._load_playwright_sync_api",
-        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
-    )
-
-    with BrowserTransport(settings, headless=True) as transport:
-        assert transport is not None
-
-    assert calls[0] == ("launch", True)
-    assert calls[1] == ("new_context", str(settings.playwright_storage_state_path))
-
-
-def test_browser_transport_falls_back_to_persistent_profile(settings, monkeypatch) -> None:
-    calls: list[tuple] = []
-    chromium = _DummyChromium(calls)
-
-    monkeypatch.setattr(
-        "chathsr.transports._load_playwright_sync_api",
-        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
-    )
-
-    with BrowserTransport(settings, headless=True) as transport:
-        assert transport is not None
-
-    assert calls[0] == (
-        "launch_persistent_context",
-        str(settings.playwright_profile_dir),
-        True,
-    )
-
-
-def test_create_transport_returns_custom_http_placeholder(settings) -> None:
-    transport = create_transport(settings, "custom-http")
+def test_create_transport_returns_http_transport(settings) -> None:
+    transport = create_transport(settings)
     try:
-        assert isinstance(transport, CustomHTTPTransport)
+        assert isinstance(transport, HTTPTransport)
     finally:
         transport.close()
 
 
-def test_create_transport_returns_browser_transport(settings, monkeypatch) -> None:
-    calls: list[tuple] = []
-    chromium = _DummyChromium(calls)
-
-    monkeypatch.setattr(
-        "chathsr.transports._load_playwright_sync_api",
-        lambda: (_DummyTimeoutError, lambda: _DummyPlaywrightManager(chromium, calls)),
-    )
-
-    with create_transport(settings, "browser") as transport:
-        assert isinstance(transport, BrowserTransport)
-
-
-def test_create_transport_rejects_unknown_name(settings) -> None:
-    with pytest.raises(UnsupportedTransportError):
-        create_transport(settings, "nope")
-
-
-def test_custom_http_transport_builds_cloudscraper_client(settings) -> None:
-    with CustomHTTPTransport(settings) as transport:
+def test_http_transport_builds_cloudscraper_client(settings) -> None:
+    with HTTPTransport(settings) as transport:
         assert transport._client is not None
 
 
-def test_custom_http_transport_fetch_requires_context(settings) -> None:
-    transport = CustomHTTPTransport(settings)
+def test_http_transport_fetch_requires_context(settings) -> None:
+    transport = HTTPTransport(settings)
 
     with pytest.raises(TransportError, match="context manager"):
         transport.fetch("https://arca.live/")
 
 
-def test_custom_http_transport_verbose_logs_requested_url(settings, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(CustomHTTPTransport, "build_client", lambda self: _FakeHTTPClient())
+def test_http_transport_verbose_logs_requested_url(settings, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(HTTPTransport, "build_client", lambda self: _FakeHTTPClient())
 
-    with CustomHTTPTransport(settings, verbose=True) as transport:
+    with HTTPTransport(settings, verbose=True) as transport:
         html = transport.fetch("https://arca.live/b/hkstarrail")
 
     captured = capsys.readouterr()
     assert html == "<html>ok</html>"
-    assert "[custom-http] GET https://arca.live/b/hkstarrail" in captured.err
+    assert "[http] GET https://arca.live/b/hkstarrail" in captured.err
     assert "status=200" in captured.err
 
 
-def test_transports_module_import_is_lazy_for_playwright(monkeypatch) -> None:
-    sys.modules.pop("chathsr.transports", None)
-    real_import = builtins.__import__
+def test_http_transport_detects_challenge_page_and_includes_evidence(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        HTTPTransport,
+        "build_client",
+        lambda self: _FakeHTTPClient(
+            text="<html><title>Just a moment...</title></html>",
+            status_code=403,
+            raise_http_error=True,
+            headers={"server": "cloudflare", "cf-ray": "abc123"},
+        ),
+    )
 
-    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "playwright.sync_api":
-            raise AssertionError("playwright.sync_api should not load during module import")
-        return real_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-    module = importlib.import_module("chathsr.transports")
-    assert module.DEFAULT_TRANSPORT == "browser"
-    sys.modules.pop("chathsr.transports", None)
+    with HTTPTransport(settings) as transport:
+        with pytest.raises(CrawlBlockedError, match="server=cloudflare"):
+            transport.fetch("https://arca.live/b/hkstarrail")
 
 
-class _DummyTimeoutError(Exception):
-    pass
+def test_http_transport_probe_returns_diagnostics_for_challenge_page(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        HTTPTransport,
+        "build_client",
+        lambda self: _FakeHTTPClient(
+            text="<html><title>Just a moment...</title></html>",
+            status_code=403,
+            raise_http_error=True,
+            headers={"server": "cloudflare", "cf-ray": "abc123"},
+        ),
+    )
+
+    with HTTPTransport(settings) as transport:
+        result = transport.probe("https://arca.live/b/hkstarrail")
+
+    assert result.profile == "default"
+    assert result.status_code == 403
+    assert result.blocked is True
+    assert result.block_marker_found is True
+    assert result.error_kind == "challenge_page"
+    assert result.server == "cloudflare"
+    assert result.cf_ray == "abc123"
+    assert "Just a moment" in result.body_snippet
+
+
+def test_http_transport_build_client_applies_probe_request_config(
+    settings, monkeypatch
+) -> None:
+    client = _FakeHTTPClient()
+    cookie_jar = RequestsCookieJar()
+    cookie_jar.set("cf_clearance", "token", domain="arca.live", path="/")
+
+    monkeypatch.setattr(
+        "chathsr.http_transport.cloudscraper.create_scraper",
+        lambda **kwargs: client,
+    )
+
+    transport = HTTPTransport(
+        settings,
+        request_config=HTTPRequestConfig(
+            proxy_url="http://user:pass@proxy.example:8080",
+            cookie_header="foo=bar",
+            trust_env=False,
+        ),
+    )
+    transport.build_client()
+
+    assert client.trust_env is False
+    assert client.proxies == {
+        "http": "http://user:pass@proxy.example:8080",
+        "https": "http://user:pass@proxy.example:8080",
+    }
+    assert client.headers["Cookie"] == "foo=bar"
+
+    transport = HTTPTransport(
+        settings,
+        request_config=HTTPRequestConfig(cookie_jar=cookie_jar, trust_env=False),
+    )
+    transport.build_client()
+
+    assert client.cookies.get("cf_clearance") == "token"
+
+
+def test_http_transport_raises_transport_error_for_non_challenge_http_error(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        HTTPTransport,
+        "build_client",
+        lambda self: _FakeHTTPClient(
+            text="<html>nope</html>",
+            status_code=500,
+            raise_http_error=True,
+        ),
+    )
+
+    with HTTPTransport(settings) as transport:
+        with pytest.raises(TransportError, match="HTTP 500"):
+            transport.fetch("https://arca.live/b/hkstarrail")
+
+
+def test_run_http_probe_matrix_attempts_all_profiles_in_order(settings, monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_create_scraper(**kwargs):
+        calls.append(kwargs)
+        return _FakeHTTPClient()
+
+    monkeypatch.setattr("chathsr.http_transport.cloudscraper.create_scraper", fake_create_scraper)
+
+    results = run_http_probe_matrix(settings, settings.board_url)
+
+    assert [result.profile for result in results] == [
+        "default",
+        "cloudscraper_windows",
+        "modern_desktop_ua",
+    ]
+    assert calls[0] == {}
+    assert calls[1]["browser"]["platform"] == "windows"
+    assert "Chrome/137.0.0.0" in results[2].user_agent
+    assert all(result.proxy_label == "direct" for result in results)
+    assert all(result.cookie_mode == "none" for result in results)
+
+
+def test_run_http_probe_matrix_expands_proxy_and_cookie_variants(
+    settings, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "chathsr.http_transport.cloudscraper.create_scraper",
+        lambda **kwargs: _FakeHTTPClient(),
+    )
+    cookie_jar = RequestsCookieJar()
+    cookie_jar.set("cf_clearance", "token", domain="arca.live", path="/")
+
+    results = run_http_probe_matrix(
+        settings,
+        settings.board_url,
+        proxy_url="http://user:pass@proxy.example:8080",
+        cookie_jar=cookie_jar,
+        profile_name="default",
+    )
+
+    assert [(result.proxy_label, result.cookie_mode) for result in results] == [
+        ("direct", "none"),
+        ("direct", "json"),
+        ("http://proxy.example:8080", "none"),
+        ("http://proxy.example:8080", "json"),
+    ]
+    assert all(result.profile == "default" for result in results)
+
+
+def test_run_http_probe_matrix_rejects_multiple_cookie_sources(settings) -> None:
+    cookie_jar = RequestsCookieJar()
+    cookie_jar.set("cf_clearance", "token")
+
+    with pytest.raises(TransportError, match="either a raw cookie header or a cookie JSON"):
+        run_http_probe_matrix(
+            settings,
+            settings.board_url,
+            cookie_header="foo=bar",
+            cookie_jar=cookie_jar,
+        )
+
+
+def test_load_probe_cookie_jar_supports_array_and_cookies_object(tmp_path) -> None:
+    cookie_path = tmp_path / "cookies.json"
+    cookie_path.write_text(
+        json.dumps(
+            {
+                "cookies": [
+                    {
+                        "name": "cf_clearance",
+                        "value": "token",
+                        "domain": "arca.live",
+                        "path": "/",
+                        "secure": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    jar = load_probe_cookie_jar(cookie_path)
+
+    cookie = next(iter(jar))
+    assert cookie.name == "cf_clearance"
+    assert cookie.value == "token"
+    assert cookie.domain == "arca.live"
+    assert cookie.secure is True
+
+
+def test_load_probe_cookie_jar_rejects_invalid_shape(tmp_path) -> None:
+    cookie_path = tmp_path / "cookies.json"
+    cookie_path.write_text(json.dumps({"cookies": {"name": "bad"}}), encoding="utf-8")
+
+    with pytest.raises(TransportError, match="Cookie JSON must be an array"):
+        load_probe_cookie_jar(cookie_path)
 
 
 class _FakeResponse:
-    def __init__(self, text: str, status_code: int = 200) -> None:
+    def __init__(
+        self,
+        text: str,
+        status_code: int = 200,
+        *,
+        raise_http_error: bool = False,
+        headers: dict[str, str] | None = None,
+        url: str = "https://arca.live/b/hkstarrail",
+    ) -> None:
         self.text = text
         self.status_code = status_code
         self.encoding = "utf-8"
+        self._raise_http_error = raise_http_error
+        self.headers = headers or {}
+        self.url = url
+        self.history: list[object] = []
 
     def raise_for_status(self) -> None:
-        return None
-
-
-class _FakeCookies:
-    pass
+        if self._raise_http_error:
+            raise HTTPError(response=self)
 
 
 class _FakeHTTPClient:
+    def __init__(
+        self,
+        text: str = "<html>ok</html>",
+        status_code: int = 200,
+        *,
+        raise_http_error: bool = False,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self._response = _FakeResponse(
+            text,
+            status_code,
+            raise_http_error=raise_http_error,
+            headers=headers,
+        )
+        self.headers: dict[str, str] = {}
+        self.proxies: dict[str, str] = {}
+        self.trust_env = True
+        self.cookies = RequestsCookieJar()
+
     def get(self, url: str, timeout: int, allow_redirects: bool):
-        return _FakeResponse("<html>ok</html>", 200)
+        self._response.url = url
+        return self._response
 
     def close(self) -> None:
         return None
-
-
-class _DummyPage:
-    def __init__(self) -> None:
-        self.timeout = None
-        self.closed = False
-
-    def set_default_timeout(self, timeout: int) -> None:
-        self.timeout = timeout
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class _DummyContext:
-    def __init__(self, calls: list[tuple] | None = None) -> None:
-        self.calls = calls
-        self.pages = [_DummyPage()]
-        self.closed = False
-
-    def new_page(self):
-        if self.calls is not None:
-            self.calls.append(("new_page",))
-        page = _DummyPage()
-        self.pages.append(page)
-        return page
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class _DummyBrowser:
-    def __init__(self, calls: list[tuple], *, contexts: list[_DummyContext] | None = None) -> None:
-        self.calls = calls
-        self.contexts = contexts or []
-        self.closed = False
-
-    def new_context(self, *, storage_state: str):
-        self.calls.append(("new_context", storage_state))
-        return _DummyContext()
-
-    def close(self) -> None:
-        self.closed = True
-        self.calls.append(("browser_close",))
-
-
-class _DummyChromium:
-    def __init__(self, calls: list[tuple]) -> None:
-        self.calls = calls
-
-    def launch(self, *, headless: bool):
-        self.calls.append(("launch", headless))
-        return _DummyBrowser(self.calls)
-
-    def launch_persistent_context(self, user_data_dir: str, *, headless: bool):
-        self.calls.append(("launch_persistent_context", user_data_dir, headless))
-        return _DummyContext()
-
-    def connect_over_cdp(self, endpoint_url: str):
-        self.calls.append(("connect_over_cdp", endpoint_url))
-        return _DummyBrowser(self.calls, contexts=[_DummyContext(self.calls)])
-
-
-class _DummyPlaywrightManager:
-    def __init__(self, chromium: _DummyChromium, calls: list[tuple]) -> None:
-        self.chromium = chromium
-        self.calls = calls
-
-    def start(self):
-        return SimpleNamespace(chromium=self.chromium)
-
-    def stop(self) -> None:
-        self.calls.append(("playwright_stop",))

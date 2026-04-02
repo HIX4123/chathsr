@@ -1,9 +1,13 @@
 __pycache__/
 .pytest_cache/
 .venv/
+.python/
 .coverage
 .env
 data/*.sqlite3
+data/inbox/
+data/sync-archive/
+data/sync-outbox/
 data/playwright-profile/
 data/storage_state.json
 *.pyc
