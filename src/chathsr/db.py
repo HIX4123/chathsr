@@ -20,8 +20,11 @@ CREATE TABLE IF NOT EXISTS posts (
     author TEXT,
     body_text TEXT,
     image_urls_json TEXT NOT NULL DEFAULT '[]',
+    video_urls_json TEXT NOT NULL DEFAULT '[]',
     raw_html TEXT,
     content_hash TEXT NOT NULL,
+    remote_synced_content_hash TEXT,
+    remote_synced_at TEXT,
     indexed_content_hash TEXT,
     indexed_at TEXT,
     status TEXT NOT NULL DEFAULT 'active',
@@ -89,6 +92,7 @@ class Database:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate_posts_schema()
 
     def close(self) -> None:
         self.conn.close()
@@ -233,9 +237,9 @@ class Database:
                 """
                 INSERT INTO posts(
                     post_id, url, title, category_label, created_at, author, body_text,
-                    image_urls_json, raw_html, content_hash, status, crawled_at
+                    image_urls_json, video_urls_json, raw_html, content_hash, status, crawled_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
                 ON CONFLICT(post_id) DO UPDATE SET
                     url = excluded.url,
                     title = excluded.title,
@@ -244,6 +248,7 @@ class Database:
                     author = excluded.author,
                     body_text = excluded.body_text,
                     image_urls_json = excluded.image_urls_json,
+                    video_urls_json = excluded.video_urls_json,
                     raw_html = excluded.raw_html,
                     content_hash = excluded.content_hash,
                     status = 'active',
@@ -258,6 +263,7 @@ class Database:
                     article.author,
                     article.body_text,
                     _json_dumps(article.image_urls),
+                    _json_dumps(article.video_urls),
                     article.raw_html,
                     article.content_hash,
                     utc_now_iso(),
@@ -282,6 +288,41 @@ class Database:
             ORDER BY datetime(created_at) DESC, post_id DESC
         """
         return list(self.conn.execute(sql))
+
+    def select_posts_pending_remote_sync(self) -> list[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                """
+                SELECT *
+                FROM posts
+                WHERE status = 'active'
+                  AND (
+                    remote_synced_content_hash IS NULL
+                    OR remote_synced_content_hash != content_hash
+                  )
+                ORDER BY datetime(created_at) DESC, post_id DESC
+                """
+            )
+        )
+
+    def mark_posts_remote_synced(
+        self,
+        synced_posts: Iterable[tuple[int, str]],
+    ) -> int:
+        synced_at = utc_now_iso()
+        updated = 0
+        with self.conn:
+            for post_id, content_hash in synced_posts:
+                cursor = self.conn.execute(
+                    """
+                    UPDATE posts
+                    SET remote_synced_content_hash = ?, remote_synced_at = ?
+                    WHERE post_id = ? AND content_hash = ? AND status = 'active'
+                    """,
+                    (content_hash, synced_at, post_id, content_hash),
+                )
+                updated += max(cursor.rowcount, 0)
+        return updated
 
     def get_existing_embedding_spaces(self) -> set[tuple[str, str, int]]:
         rows = self.conn.execute(
@@ -437,6 +478,23 @@ class Database:
     def count_chunks(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS count FROM chunks").fetchone()
         return int(row["count"])
+
+    def _migrate_posts_schema(self) -> None:
+        columns = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(posts)").fetchall()
+        }
+        with self.conn:
+            if "video_urls_json" not in columns:
+                self.conn.execute(
+                    "ALTER TABLE posts ADD COLUMN video_urls_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            if "remote_synced_content_hash" not in columns:
+                self.conn.execute(
+                    "ALTER TABLE posts ADD COLUMN remote_synced_content_hash TEXT"
+                )
+            if "remote_synced_at" not in columns:
+                self.conn.execute("ALTER TABLE posts ADD COLUMN remote_synced_at TEXT")
 
 
 def _json_dumps(values: list[str]) -> str:

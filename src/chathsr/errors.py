@@ -32,3 +32,7 @@ class SyncTransportError(SyncBatchError):
 
 class TransportError(ChathsrError):
     """Raised when the HTTP crawl transport cannot be created or used."""
+
+
+class RemoteSyncError(ChathsrError):
+    """Raised when live client-to-server sync cannot proceed."""

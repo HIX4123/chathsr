@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 from chathsr.config import Settings
 from chathsr.db import Database
+from chathsr.errors import ParseError
 from chathsr.models import ParsedArticle
 from chathsr.parsing import (
     build_category_page_url,
@@ -36,7 +39,7 @@ class ArcaLiveCrawler:
         max_pages: int | None = None,
         verbose: bool = False,
     ) -> dict[str, int]:
-        stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
+        stats = self._new_stats()
         with self.transport_factory(self.settings, verbose=verbose) as transport:
             self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
@@ -65,7 +68,7 @@ class ArcaLiveCrawler:
         max_pages: int | None = None,
         verbose: bool = False,
     ) -> tuple[list[ParsedArticle], dict[str, int]]:
-        stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
+        stats = self._new_stats()
         with self.transport_factory(self.settings, verbose=verbose) as transport:
             self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
@@ -88,7 +91,7 @@ class ArcaLiveCrawler:
         max_pages: int | None = None,
         verbose: bool = False,
     ) -> tuple[list[ParsedArticle], dict[str, int]]:
-        stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
+        stats = self._new_stats()
         with self.transport_factory(self.settings, verbose=verbose) as transport:
             self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
@@ -113,7 +116,7 @@ class ArcaLiveCrawler:
         unchanged_limit: int = 20,
         verbose: bool = False,
     ) -> dict[str, int]:
-        stats = {"pages": 0, "articles": 0, "new_posts": 0, "changed_posts": 0}
+        stats = self._new_stats()
         with self.transport_factory(self.settings, verbose=verbose) as transport:
             self._emit_verbose(verbose, f"resolve category slug from {self.settings.board_url}")
             category_slug = self._resolve_category_slug(transport)
@@ -147,7 +150,19 @@ class ArcaLiveCrawler:
                 for ref in refs:
                     self._emit_verbose(verbose, f"fetch article {ref.post_id}: {ref.url}")
                     article_html = self._fetch_html(transport, ref.url)
-                    article = parse_article(article_html, url=ref.url)
+                    try:
+                        article = parse_article(article_html, url=ref.url)
+                    except ParseError as exc:
+                        self._handle_parse_failure(
+                            post_id=ref.post_id,
+                            url=ref.url,
+                            raw_html=article_html,
+                            exc=exc,
+                            stats=stats,
+                            verbose=verbose,
+                        )
+                        seen_ids.add(ref.post_id)
+                        continue
                     is_new, changed = db.upsert_article(article)
                     if is_new:
                         stats["new_posts"] += 1
@@ -213,9 +228,20 @@ class ArcaLiveCrawler:
             for ref in refs:
                 self._emit_verbose(verbose, f"fetch article {ref.post_id}: {ref.url}")
                 article_html = self._fetch_html(transport, ref.url)
-                article = parse_article(article_html, url=ref.url)
-                articles.append(article)
                 seen_ids.add(ref.post_id)
+                try:
+                    article = parse_article(article_html, url=ref.url)
+                except ParseError as exc:
+                    self._handle_parse_failure(
+                        post_id=ref.post_id,
+                        url=ref.url,
+                        raw_html=article_html,
+                        exc=exc,
+                        stats=stats,
+                        verbose=verbose,
+                    )
+                    continue
+                articles.append(article)
             page_number += 1
         return articles
 
@@ -270,7 +296,18 @@ class ArcaLiveCrawler:
                     return articles
                 self._emit_verbose(verbose, f"fetch article {ref.post_id}: {ref.url}")
                 article_html = self._fetch_html(transport, ref.url)
-                article = parse_article(article_html, url=ref.url)
+                try:
+                    article = parse_article(article_html, url=ref.url)
+                except ParseError as exc:
+                    self._handle_parse_failure(
+                        post_id=ref.post_id,
+                        url=ref.url,
+                        raw_html=article_html,
+                        exc=exc,
+                        stats=stats,
+                        verbose=verbose,
+                    )
+                    continue
                 articles.append(article)
             page_number += 1
         return articles
@@ -282,3 +319,63 @@ class ArcaLiveCrawler:
         if not verbose:
             return
         print(f"[crawl] {message}", file=sys.stderr, flush=True)
+
+    def _new_stats(self) -> dict[str, int]:
+        return {
+            "pages": 0,
+            "articles": 0,
+            "new_posts": 0,
+            "changed_posts": 0,
+            "failed_articles": 0,
+        }
+
+    def _handle_parse_failure(
+        self,
+        *,
+        post_id: int,
+        url: str,
+        raw_html: str,
+        exc: ParseError,
+        stats: dict[str, int],
+        verbose: bool,
+    ) -> None:
+        saved_path = self._save_failed_post_html(post_id=post_id, raw_html=raw_html)
+        self._append_failed_post_record(
+            post_id=post_id,
+            url=url,
+            error=str(exc),
+            saved_path=saved_path,
+        )
+        stats["failed_articles"] += 1
+        self._emit_verbose(
+            verbose,
+            f"parse failed {post_id}: {exc} (saved {saved_path})",
+        )
+
+    def _save_failed_post_html(self, *, post_id: int, raw_html: str) -> Path:
+        failed_dir = self.settings.failed_posts_dir
+        failed_dir.mkdir(parents=True, exist_ok=True)
+        output_path = failed_dir / f"{post_id}.html"
+        output_path.write_text(raw_html, encoding="utf-8")
+        return output_path.resolve()
+
+    def _append_failed_post_record(
+        self,
+        *,
+        post_id: int,
+        url: str,
+        error: str,
+        saved_path: Path,
+    ) -> None:
+        failed_dir = self.settings.failed_posts_dir
+        failed_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "post_id": post_id,
+            "url": url,
+            "error": error,
+            "saved_path": str(saved_path),
+            "fetched_at": utc_now_iso(),
+        }
+        with (failed_dir / "failed_posts.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False))
+            handle.write("\n")

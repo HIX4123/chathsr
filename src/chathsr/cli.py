@@ -19,6 +19,11 @@ from chathsr.http_transport import (
     run_http_probe_matrix,
 )
 from chathsr.indexing import index_posts
+from chathsr.live_sync import (
+    format_live_sync_cycle_result,
+    resolve_remote_sync_target,
+    run_live_sync,
+)
 from chathsr.models import ParsedArticle
 from chathsr.post_exports import export_articles_jsonl, import_articles_jsonl
 from chathsr.retrieval import answer_question
@@ -104,7 +109,8 @@ def crawl_backfill(
             )
             typer.echo(
                 f"Backfill complete: pages={stats['pages']} articles={stats['articles']} "
-                f"new={stats['new_posts']} changed={stats['changed_posts']}"
+                f"new={stats['new_posts']} changed={stats['changed_posts']} "
+                f"failed={stats['failed_articles']}"
             )
     except ChathsrError as exc:
         raise _fail(exc)
@@ -130,7 +136,8 @@ def crawl_export_jsonl(
             count = export_articles_jsonl(output, articles)
             db.set_crawl_state("last_export_jsonl_at", str(output.resolve()))
             typer.echo(
-                f"Export complete: pages={stats['pages']} articles={count} output={output.resolve()}"
+                f"Export complete: pages={stats['pages']} articles={count} "
+                f"failed={stats['failed_articles']} output={output.resolve()}"
             )
     except ChathsrError as exc:
         raise _fail(exc)
@@ -322,7 +329,8 @@ def sync(
             )
             typer.echo(
                 f"Sync complete: pages={stats['pages']} articles={stats['articles']} "
-                f"new={stats['new_posts']} changed={stats['changed_posts']}"
+                f"new={stats['new_posts']} changed={stats['changed_posts']} "
+                f"failed={stats['failed_articles']}"
             )
     except ChathsrError as exc:
         raise _fail(exc)
@@ -488,8 +496,109 @@ def refresh(
             indexed = _index_changed_posts(settings, db, verbose=verbose)
             typer.echo(
                 f"Refresh complete: pages={sync_stats['pages']} articles={sync_stats['articles']} "
-                f"new={sync_stats['new_posts']} changed={sync_stats['changed_posts']} indexed={indexed}"
+                f"new={sync_stats['new_posts']} changed={sync_stats['changed_posts']} "
+                f"failed={sync_stats['failed_articles']} indexed={indexed}"
             )
+    except ChathsrError as exc:
+        raise _fail(exc)
+
+
+@app.command("live-sync")
+def live_sync(
+    once: bool = typer.Option(
+        False,
+        "--once",
+        help="Run a single crawl/upload/import/index cycle and exit.",
+    ),
+    ssh_host: str | None = typer.Option(
+        None,
+        "--ssh-host",
+        help="SSH host for the Linux server.",
+    ),
+    ssh_user: str | None = typer.Option(
+        None,
+        "--ssh-user",
+        help="SSH user for the Linux server.",
+    ),
+    ssh_port: int | None = typer.Option(
+        None,
+        "--ssh-port",
+        min=1,
+        help="SSH port for the Linux server.",
+    ),
+    ssh_identity_file: Path | None = typer.Option(
+        None,
+        "--ssh-identity-file",
+        help="Optional SSH private key path.",
+    ),
+    remote_inbox_dir: str | None = typer.Option(
+        None,
+        "--remote-inbox-dir",
+        help="Remote directory where exported JSONL files are uploaded.",
+    ),
+    remote_rag_bin: str | None = typer.Option(
+        None,
+        "--remote-rag-bin",
+        help="Absolute path to the server-side `rag` executable.",
+    ),
+    interval_seconds: int | None = typer.Option(
+        None,
+        "--interval-seconds",
+        min=1,
+        help="Polling interval between live-sync cycles.",
+    ),
+    max_pages: int | None = typer.Option(
+        None,
+        help="Optional page limit for each incremental crawl cycle.",
+    ),
+    unchanged_limit: int = typer.Option(
+        20,
+        min=1,
+        help="Stop each crawl cycle after this many unchanged posts in a row.",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Print crawl progress and SSH/SCP commands.",
+    ),
+) -> None:
+    """Continuously crawl on the client and push changed posts to the server."""
+    detail = f"ssh_host={ssh_host or '-'} interval={interval_seconds or '-'} once={once}"
+    try:
+        with command_context("live-sync", detail=detail) as (settings, db):
+            target = resolve_remote_sync_target(
+                settings,
+                ssh_host=ssh_host,
+                ssh_user=ssh_user,
+                ssh_port=ssh_port,
+                ssh_identity_file=(
+                    ssh_identity_file.expanduser().resolve()
+                    if ssh_identity_file is not None
+                    else None
+                ),
+                remote_inbox_dir=remote_inbox_dir,
+                remote_rag_bin=remote_rag_bin,
+            )
+            try:
+                run_live_sync(
+                    settings,
+                    db,
+                    target,
+                    max_pages=max_pages,
+                    unchanged_limit=unchanged_limit,
+                    interval_seconds=interval_seconds,
+                    verbose=verbose,
+                    once=once,
+                    on_cycle_complete=lambda result: typer.echo(
+                        format_live_sync_cycle_result(result)
+                    ),
+                    on_cycle_error=lambda exc: typer.echo(
+                        f"Live sync cycle failed: {exc}",
+                        err=True,
+                    ),
+                )
+            except KeyboardInterrupt:
+                typer.echo("Live sync stopped.")
     except ChathsrError as exc:
         raise _fail(exc)
 

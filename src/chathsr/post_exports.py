@@ -112,6 +112,13 @@ def _payload_to_article(
         raise ImportFormatError(
             f"{path}: line {line_number} field 'image_urls' must be a list of strings"
         )
+    video_urls = payload.get("video_urls", [])
+    if not isinstance(video_urls, list) or any(
+        not isinstance(value, str) for value in video_urls
+    ):
+        raise ImportFormatError(
+            f"{path}: line {line_number} field 'video_urls' must be a list of strings"
+        )
     category_label = _optional_string(payload.get("category_label"))
     created_at = _optional_string(payload.get("created_at"))
     author = _optional_string(payload.get("author"))
@@ -123,6 +130,7 @@ def _payload_to_article(
         author=author,
         body_text=body_text,
         image_urls=image_urls,
+        video_urls=video_urls,
     )
     return ParsedArticle(
         post_id=post_id,
@@ -133,6 +141,7 @@ def _payload_to_article(
         author=author,
         body_text=body_text,
         image_urls=image_urls,
+        video_urls=video_urls,
         raw_html=raw_html,
         content_hash=content_hash,
     )
@@ -148,6 +157,7 @@ def _article_to_payload(article: ParsedArticle) -> dict[str, object]:
         "author": article.author,
         "body_text": article.body_text,
         "image_urls": article.image_urls,
+        "video_urls": article.video_urls,
         "raw_html": article.raw_html,
         "content_hash": article.content_hash,
     }

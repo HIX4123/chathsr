@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from chathsr.errors import ParseError
 from chathsr.parsing import find_category_slug, parse_article, parse_board_posts
 
 
@@ -57,6 +60,7 @@ def test_parse_article_extracts_body_and_images() -> None:
     assert "반디는 격파 특화 딜러다." in article.body_text
     assert "속도 150 이상" in article.body_text
     assert article.image_urls == ["https://arca.live/files/guide.png"]
+    assert article.video_urls == []
 
 
 def test_parse_article_allows_image_only_posts() -> None:
@@ -78,3 +82,44 @@ def test_parse_article_allows_image_only_posts() -> None:
     article = parse_article(html, url="https://arca.live/b/hkstarrail/23456789")
     assert article.body_text == ""
     assert article.image_urls == ["https://arca.live/files/image-only.png"]
+    assert article.video_urls == []
+
+
+def test_parse_article_allows_video_only_posts() -> None:
+    html = """
+    <html>
+      <body>
+        <div class="article-head">
+          <div class="title">
+            <span class="badge badge-success">정보</span>
+            영상 공지
+          </div>
+        </div>
+        <div class="article-content">
+          <iframe src="https://video.example/embed/abc123"></iframe>
+        </div>
+      </body>
+    </html>
+    """
+    article = parse_article(html, url="https://arca.live/b/hkstarrail/34567890")
+    assert article.video_urls == ["https://video.example/embed/abc123"]
+    assert article.body_text.startswith("동영상 임베드:")
+    assert "https://video.example/embed/abc123" in article.body_text
+
+
+def test_parse_article_rejects_empty_posts_without_media() -> None:
+    html = """
+    <html>
+      <body>
+        <div class="article-head">
+          <div class="title">
+            <span class="badge badge-success">정보</span>
+            빈 글
+          </div>
+        </div>
+        <div class="article-content"></div>
+      </body>
+    </html>
+    """
+    with pytest.raises(ParseError, match="empty after normalization"):
+        parse_article(html, url="https://arca.live/b/hkstarrail/45678901")

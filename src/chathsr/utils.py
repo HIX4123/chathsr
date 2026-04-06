@@ -29,15 +29,20 @@ def stable_content_hash(
     author: str | None,
     body_text: str,
     image_urls: Iterable[str],
+    video_urls: Iterable[str],
 ) -> str:
+    image_block = "\n".join(image_urls)
+    video_block = "\n".join(video_urls)
     pieces = [
         title.strip(),
         (category_label or "").strip(),
         (created_at or "").strip(),
         (author or "").strip(),
         body_text.strip(),
-        "\n".join(image_urls),
+        image_block,
     ]
+    if video_block:
+        pieces.append(video_block)
     return sha256_text("\n---\n".join(pieces))
 
 

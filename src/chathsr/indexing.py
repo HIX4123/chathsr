@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 
 from chathsr.chunking import chunk_article
@@ -49,7 +50,8 @@ def index_posts(
             created_at=row["created_at"],
             author=row["author"],
             body_text=row["body_text"],
-            image_urls=[],
+            image_urls=_load_urls_json(row["image_urls_json"]),
+            video_urls=_load_urls_json(row["video_urls_json"]),
             raw_html=row["raw_html"] or "",
             content_hash=row["content_hash"],
         )
@@ -76,3 +78,12 @@ def index_posts(
                 flush=True,
             )
     return indexed_count
+
+
+def _load_urls_json(value: str | None) -> list[str]:
+    if not value:
+        return []
+    payload = json.loads(value)
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, str)]

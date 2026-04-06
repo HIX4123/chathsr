@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from pathlib import Path
 
 from typer.testing import CliRunner
 
+import chathsr.cli
 from chathsr.cli import app
 from chathsr.http_transport import HTTPProbeResult
+from chathsr.live_sync import LiveSyncCycleResult, RemoteSyncTarget
 from tests.helpers import make_article
 
 
@@ -57,6 +60,138 @@ def test_refresh_help_omits_transport_and_headless() -> None:
     assert "--transport" not in result.stdout
     assert "--headless" not in result.stdout
     assert "--verbose" in result.stdout
+
+
+def test_live_sync_help_lists_remote_sync_options() -> None:
+    result = runner.invoke(app, ["live-sync", "--help"])
+    assert result.exit_code == 0
+    assert "--once" in result.stdout
+    assert "--ssh-host" in result.stdout
+    assert "--ssh-user" in result.stdout
+    assert "--ssh-port" in result.stdout
+    assert "--ssh-identity-file" in result.stdout
+    assert "--remote-inbox-dir" in result.stdout
+    assert "--remote-rag-bin" in result.stdout
+    assert "--interval-seconds" in result.stdout
+    assert "--verbose" in result.stdout
+
+
+def test_live_sync_once_invokes_runner_with_once_flag(settings, monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    @contextmanager
+    def fake_command_context(command: str, detail: str = ""):
+        calls["command"] = command
+        calls["detail"] = detail
+        yield settings, None
+
+    def fake_resolve_target(
+        current_settings,
+        *,
+        ssh_host,
+        ssh_user,
+        ssh_port,
+        ssh_identity_file,
+        remote_inbox_dir,
+        remote_rag_bin,
+    ):
+        calls["resolve_args"] = {
+            "settings": current_settings,
+            "ssh_host": ssh_host,
+            "ssh_user": ssh_user,
+            "ssh_port": ssh_port,
+            "ssh_identity_file": ssh_identity_file,
+            "remote_inbox_dir": remote_inbox_dir,
+            "remote_rag_bin": remote_rag_bin,
+        }
+        return RemoteSyncTarget(
+            ssh_host="server.example.com",
+            ssh_user="deploy",
+            ssh_port=2222,
+            remote_inbox_dir="/srv/chathsr/inbox",
+            remote_rag_bin="/srv/chathsr/.venv/bin/rag",
+        )
+
+    def fake_run_live_sync(
+        current_settings,
+        db,
+        target,
+        *,
+        max_pages,
+        unchanged_limit,
+        interval_seconds,
+        verbose,
+        once,
+        on_cycle_complete,
+        on_cycle_error,
+    ):
+        calls["run_args"] = {
+            "settings": current_settings,
+            "db": db,
+            "target": target,
+            "max_pages": max_pages,
+            "unchanged_limit": unchanged_limit,
+            "interval_seconds": interval_seconds,
+            "verbose": verbose,
+            "once": once,
+        }
+        on_cycle_complete(
+            LiveSyncCycleResult(
+                sync_stats={
+                    "pages": 1,
+                    "articles": 2,
+                    "new_posts": 1,
+                    "changed_posts": 1,
+                    "failed_articles": 0,
+                },
+                pending_posts=1,
+                exported_posts=1,
+                marked_posts=1,
+                uploaded=True,
+                remote_file="/srv/chathsr/inbox/live-sync-example.jsonl",
+            )
+        )
+        return 1
+
+    monkeypatch.setattr(chathsr.cli, "command_context", fake_command_context)
+    monkeypatch.setattr(chathsr.cli, "resolve_remote_sync_target", fake_resolve_target)
+    monkeypatch.setattr(chathsr.cli, "run_live_sync", fake_run_live_sync)
+
+    result = runner.invoke(
+        app,
+        [
+            "live-sync",
+            "--once",
+            "--ssh-host",
+            "server.example.com",
+            "--ssh-user",
+            "deploy",
+            "--ssh-port",
+            "2222",
+            "--ssh-identity-file",
+            str(Path("/keys/id_ed25519")),
+            "--remote-inbox-dir",
+            "/srv/chathsr/inbox",
+            "--remote-rag-bin",
+            "/srv/chathsr/.venv/bin/rag",
+            "--interval-seconds",
+            "45",
+            "--max-pages",
+            "3",
+            "--unchanged-limit",
+            "7",
+            "--verbose",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls["command"] == "live-sync"
+    assert calls["run_args"]["once"] is True
+    assert calls["run_args"]["interval_seconds"] == 45
+    assert calls["run_args"]["max_pages"] == 3
+    assert calls["run_args"]["unchanged_limit"] == 7
+    assert calls["run_args"]["verbose"] is True
+    assert "Live sync cycle complete:" in result.stdout
 
 
 def test_probe_group_is_listed_in_help() -> None:
@@ -246,7 +381,13 @@ def test_refresh_verbose_is_forwarded_to_indexing(monkeypatch, settings) -> None
             unchanged_limit=20,
         ):
             calls["sync"] = verbose
-            return {"pages": 1, "articles": 2, "new_posts": 1, "changed_posts": 1}
+            return {
+                "pages": 1,
+                "articles": 2,
+                "new_posts": 1,
+                "changed_posts": 1,
+                "failed_articles": 0,
+            }
 
     class FakeGeminiClient:
         def __init__(self, _settings) -> None:

@@ -9,11 +9,13 @@ def make_article(
     post_id: int,
     title: str,
     body_text: str,
+    video_urls: list[str] | None = None,
     category_label: str = "정보",
     created_at: str = "2026-03-22T12:00:00+09:00",
     author: str = "tester",
 ) -> ParsedArticle:
     image_urls: list[str] = []
+    video_urls = list(video_urls or [])
     return ParsedArticle(
         post_id=post_id,
         url=f"https://arca.live/b/hkstarrail/{post_id}",
@@ -23,6 +25,7 @@ def make_article(
         author=author,
         body_text=body_text,
         image_urls=image_urls,
+        video_urls=video_urls,
         raw_html="<html></html>",
         content_hash=stable_content_hash(
             title=title,
@@ -31,6 +34,7 @@ def make_article(
             author=author,
             body_text=body_text,
             image_urls=image_urls,
+            video_urls=video_urls,
         ),
     )
 

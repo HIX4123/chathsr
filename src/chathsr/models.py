@@ -22,6 +22,7 @@ class ParsedArticle:
     author: str | None
     body_text: str
     image_urls: list[str]
+    video_urls: list[str]
     raw_html: str
     content_hash: str
 

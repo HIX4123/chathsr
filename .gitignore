@@ -10,4 +10,5 @@ data/sync-archive/
 data/sync-outbox/
 data/playwright-profile/
 data/storage_state.json
+data/failed-posts/
 *.pyc

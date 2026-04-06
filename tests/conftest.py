@@ -29,6 +29,12 @@ def settings(tmp_path: Path) -> Settings:
         board_slug="hkstarrail",
         category_label="정보",
         top_k=6,
+        remote_sync_ssh_host="server.example.com",
+        remote_sync_ssh_user="deploy",
+        remote_sync_ssh_port=22,
+        remote_sync_remote_inbox_dir="/srv/chathsr/inbox",
+        remote_sync_remote_rag_bin="/srv/chathsr/.venv/bin/rag",
+        remote_sync_poll_interval_seconds=30,
     )
     settings.ensure_directories()
     return settings

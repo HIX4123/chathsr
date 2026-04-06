@@ -11,6 +11,7 @@ src/chathsr/errors.py
 src/chathsr/gemini_client.py
 src/chathsr/http_transport.py
 src/chathsr/indexing.py
+src/chathsr/live_sync.py
 src/chathsr/models.py
 src/chathsr/parsing.py
 src/chathsr/post_exports.py
@@ -27,7 +28,9 @@ src/chathsr.egg-info/top_level.txt
 tests/test_chunking.py
 tests/test_cli.py
 tests/test_crawl.py
+tests/test_db.py
 tests/test_indexing.py
+tests/test_live_sync.py
 tests/test_parsing.py
 tests/test_post_exports.py
 tests/test_retrieval.py

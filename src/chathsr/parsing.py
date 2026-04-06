@@ -170,8 +170,16 @@ def parse_article(html: str, *, url: str) -> ParsedArticle:
         for img in content_root.select("img[src]")
         if img.get("src")
     )
+    video_urls = dedupe_preserve_order(
+        urljoin(url, node["src"])
+        for selector in ("iframe[src]", "video[src]", "source[src]", "embed[src]")
+        for node in content_root.select(selector)
+        if node.get("src")
+    )
     body_text = extract_article_text(content_root)
-    if not body_text and not image_urls:
+    if video_urls:
+        body_text = _prepend_video_lines(body_text, video_urls)
+    if not body_text and not image_urls and not video_urls:
         raise ParseError("Article body is empty after normalization.")
 
     post_id = parse_post_id(url)
@@ -185,6 +193,7 @@ def parse_article(html: str, *, url: str) -> ParsedArticle:
         author=author,
         body_text=body_text,
         image_urls=image_urls,
+        video_urls=video_urls,
     )
     return ParsedArticle(
         post_id=post_id,
@@ -195,9 +204,18 @@ def parse_article(html: str, *, url: str) -> ParsedArticle:
         author=author,
         body_text=body_text,
         image_urls=image_urls,
+        video_urls=video_urls,
         raw_html=html,
         content_hash=content_hash,
     )
+
+
+def _prepend_video_lines(body_text: str, video_urls: list[str]) -> str:
+    lines = ["동영상 임베드:", *video_urls]
+    video_block = "\n".join(lines)
+    if not body_text:
+        return video_block
+    return f"{video_block}\n\n{body_text}"
 
 
 def extract_article_text(content_root: Tag) -> str:
